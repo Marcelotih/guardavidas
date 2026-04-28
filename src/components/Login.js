@@ -37,7 +37,7 @@ export function Login() {
         <div style={s.brand}>
           <span style={s.brandIcon}>⚑</span>
           <div>
-            <div style={s.brandTitle}>GUARDA-VIDAS SC</div>
+            <div style={s.brandTitle}>SALVA-VIDAS SC</div>
             <div style={s.brandSub}>Sistema de controle de ponto</div>
           </div>
         </div>

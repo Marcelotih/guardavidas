@@ -1,276 +1,358 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { POSTOS } from '../postos'
+import '../global.css'
 
-// Gera 21 postos limpos, sem pessoas e sem nomes/ids definidos (apenas a numeração de 1 a 21)
-const postosIniciais = Array.from({ length: 21 }, (_, index) => ({
-    numero: index + 1,
-    salvaVidas: [] // Começa sempre vazio, esperando o check-in
-}))
-
-function fmtHora(iso) {
-    if (!iso) return '--:--'
-    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
-
-function StatusBadge({ checkin, checkout }) {
-    if (checkin && checkout) return <span style={{ ...s.badge, ...s.badgeCompleto }}>Completo</span>
-    if (checkin) return <span style={{ ...s.badge, ...s.badgeAndamento }}>Em andamento</span>
-    return <span style={{ ...s.badge, ...s.badgeAusente }}>Ausente</span>
-}
-
-function CartaoSalvaVidas({ pessoa, onVerFoto, onApagarFotos }) {
-    const temFotos = pessoa.checkin?.foto || pessoa.checkout?.foto
-    return (
-        <div style={s.cartao}>
-            <div style={s.cartaoTopo}>
-                <div style={s.avatar}>{pessoa.nome ? pessoa.nome.charAt(0) : '?'}</div>
-                <div style={s.cartaoInfo}>
-                    <span style={s.cartaoNome}>{pessoa.nome || 'Usuário'}</span>
-                    <StatusBadge checkin={pessoa.checkin} checkout={pessoa.checkout} />
-                </div>
-                {temFotos && (
-                    <button style={s.btnApagar} title="Apagar fotos" onClick={() => onApagarFotos(pessoa)}>🗑</button>
-                )}
-            </div>
-            <div style={s.registros}>
-                <div style={s.registro}>
-                    <span style={s.registroLabel}>Entrada</span>
-                    <span style={{ ...s.registroHora, color: pessoa.checkin ? '#4ade80' : '#4a5568' }}>{fmtHora(pessoa.checkin?.horario)}</span>
-                    {pessoa.checkin?.foto && <button style={s.btnFoto} onClick={() => onVerFoto(pessoa.checkin.foto, `Entrada — ${pessoa.nome}`)}>Ver foto</button>}
-                </div>
-                <div style={s.divisorVertical} />
-                <div style={s.registro}>
-                    <span style={s.registroLabel}>Saída</span>
-                    <span style={{ ...s.registroHora, color: pessoa.checkout ? '#fb923c' : '#4a5568' }}>{fmtHora(pessoa.checkout?.horario)}</span>
-                    {pessoa.checkout?.foto && <button style={s.btnFoto} onClick={() => onVerFoto(pessoa.checkout.foto, `Saída — ${pessoa.nome}`)}>Ver foto</button>}
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function ModalFoto({ foto, titulo, onFechar }) {
-    if (!foto) return null
-    return (
-        <div style={s.modalOverlay} onClick={onFechar}>
-            <div style={s.modalConteudo} onClick={e => e.stopPropagation()}>
-                <div style={s.modalHeader}>
-                    <span style={s.modalTitulo}>{titulo}</span>
-                    <button style={s.modalFechar} onClick={onFechar}>✕</button>
-                </div>
-                <img src={foto} alt={titulo} style={{ width: '100%', display: 'block' }} />
-            </div>
-        </div>
-    )
-}
-
-function ModalConfirmar({ mensagem, onConfirmar, onCancelar }) {
-    if (!mensagem) return null
-    return (
-        <div style={s.modalOverlay} onClick={onCancelar}>
-            <div style={{ ...s.modalConteudo, padding: '28px', maxWidth: '360px' }} onClick={e => e.stopPropagation()}>
-                <p style={{ color: '#f0f4f8', fontSize: '15px', margin: '0 0 24px', lineHeight: 1.5 }}>{mensagem}</p>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                    <button style={s.btnCancelar} onClick={onCancelar}>Cancelar</button>
-                    <button style={s.btnConfirmarApagar} onClick={onConfirmar}>Confirmar</button>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function exportarCSV(postos) {
-    const hoje = new Date().toLocaleDateString('pt-BR')
-    const linhas = [['Data', 'Posto', 'Nome', 'Horário Entrada', 'Horário Saída', 'Status']]
-    postos.forEach(posto => {
-        posto.salvaVidas.forEach(pessoa => {
-            let status = 'Ausente'
-            if (pessoa.checkin && pessoa.checkout) status = 'Completo'
-            else if (pessoa.checkin) status = 'Em andamento'
-            linhas.push([hoje, `Posto ${posto.numero}`, pessoa.nome, fmtHora(pessoa.checkin?.horario), fmtHora(pessoa.checkout?.horario), status])
-        })
+// Gera PDF dos relatórios (somente checkouts com relato) usando jsPDF via CDN
+async function exportarRelatorioPDF(registros, filtroLabel) {
+  // Carrega jsPDF dinamicamente
+  if (!window.jspdf) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+      script.onload = resolve
+      script.onerror = reject
+      document.head.appendChild(script)
     })
-    const csv = linhas.map(l => l.join(',')).join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `registros_${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+  }
+
+  const { jsPDF } = window.jspdf
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+
+  const relatos = registros.filter(r => r.tipo === 'checkout' && r.relato)
+  const dataGeracao = new Date().toLocaleString('pt-BR')
+  const W = 210
+  const margin = 18
+  const maxW = W - margin * 2
+
+  // ── Cabeçalho ──
+  doc.setFillColor(17, 26, 21)
+  doc.rect(0, 0, W, 36, 'F')
+  doc.setTextColor(57, 224, 122)
+  doc.setFontSize(22)
+  doc.setFont('helvetica', 'bold')
+  doc.text('SALVA-VIDAS SC', margin, 16)
+  doc.setFontSize(9)
+  doc.setTextColor(74, 102, 80)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Relatório de Ocorrências e Relatos de Turno', margin, 23)
+  doc.text(`Gerado em: ${dataGeracao}`, margin, 29)
+  if (filtroLabel) doc.text(`Filtro: ${filtroLabel}`, margin, 34)
+
+  let y = 46
+
+  const checkPage = (needed = 10) => {
+    if (y + needed > 280) {
+      doc.addPage()
+      // mini header na nova página
+      doc.setFillColor(17, 26, 21)
+      doc.rect(0, 0, W, 14, 'F')
+      doc.setFontSize(8)
+      doc.setTextColor(74, 102, 80)
+      doc.setFont('helvetica', 'normal')
+      doc.text('SALVA-VIDAS SC — Relatório de Relatos', margin, 9)
+      y = 22
+    }
+  }
+
+  if (relatos.length === 0) {
+    doc.setFontSize(12)
+    doc.setTextColor(74, 102, 80)
+    doc.setFont('helvetica', 'italic')
+    doc.text('Nenhum relato encontrado para os filtros selecionados.', margin, y)
+  } else {
+    relatos.forEach((r, i) => {
+      const data = new Date(r.timestamp)
+      const dataStr = data.toLocaleDateString('pt-BR')
+      const horaStr = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+      checkPage(40)
+
+      // Separador entre relatórios
+      if (i > 0) {
+        doc.setDrawColor(30, 48, 32)
+        doc.line(margin, y - 3, W - margin, y - 3)
+      }
+
+      // Badge tipo
+      doc.setFillColor(46, 31, 0)
+      doc.roundedRect(margin, y, 18, 6, 1, 1, 'F')
+      doc.setFontSize(7)
+      doc.setTextColor(245, 166, 35)
+      doc.setFont('helvetica', 'bold')
+      doc.text('SAÍDA', margin + 2, y + 4.2)
+
+      // Nome e posto
+      doc.setFontSize(12)
+      doc.setTextColor(212, 232, 216)
+      doc.setFont('helvetica', 'bold')
+      doc.text(r.usuario, margin + 22, y + 4.5)
+
+      // Data/hora e posto na linha seguinte
+      y += 9
+      doc.setFontSize(9)
+      doc.setTextColor(74, 102, 80)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`${r.posto}  ·  ${dataStr} às ${horaStr}`, margin, y)
+
+      // Caixa do relato
+      y += 5
+      const linhasRelato = doc.splitTextToSize(r.relato, maxW - 8)
+      const alturaRelato = linhasRelato.length * 5 + 8
+
+      checkPage(alturaRelato + 4)
+
+      doc.setFillColor(10, 15, 10)
+      doc.setDrawColor(30, 48, 32)
+      doc.roundedRect(margin, y, maxW, alturaRelato, 2, 2, 'FD')
+
+      doc.setFontSize(7)
+      doc.setTextColor(74, 102, 80)
+      doc.setFont('helvetica', 'bold')
+      doc.text('RELATO DO TURNO', margin + 4, y + 5)
+
+      doc.setFontSize(9.5)
+      doc.setTextColor(212, 232, 216)
+      doc.setFont('helvetica', 'normal')
+      doc.text(linhasRelato, margin + 4, y + 11)
+
+      y += alturaRelato + 10
+    })
+  }
+
+  // Rodapé na última página
+  const totalPages = doc.internal.getNumberOfPages()
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p)
+    doc.setFontSize(7)
+    doc.setTextColor(74, 102, 80)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Página ${p} de ${totalPages}`, W - margin, 290, { align: 'right' })
+    doc.text('Documento confidencial — acesso restrito ao Tenente/Admin', margin, 290)
+  }
+
+  const fileName = `relatorio_relatos_${new Date().toISOString().slice(0, 10)}.pdf`
+  doc.save(fileName)
+}
+
+function RegistroRow({ r }) {
+  const [aberto, setAberto] = useState(false)
+  const temRelato = r.tipo === 'checkout' && r.relato
+
+  return (
+    <div style={s.row}>
+      <div style={s.rowFoto}>
+        <img src={r.foto} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+          <span className={`badge ${r.tipo === 'checkin' ? 'badge-green' : 'badge-amber'}`}>
+            {r.tipo === 'checkin' ? 'ENT' : 'SAÍ'}
+          </span>
+          <span style={s.rowNome}>{r.usuario}</span>
+          {temRelato && (
+            <button onClick={() => setAberto(!aberto)} style={s.btnRelato}>
+              {aberto ? '▲ relato' : '▼ relato'}
+            </button>
+          )}
+        </div>
+        <p style={s.rowPosto}>{r.posto}</p>
+        <p style={s.rowHora}>{new Date(r.timestamp).toLocaleString('pt-BR')}</p>
+        {temRelato && aberto && (
+          <div style={s.relatoBox}>
+            <p style={s.relatoLabel}>Relato do turno</p>
+            <p style={s.relatoTexto}>{r.relato}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function AdminDashboard() {
-    const navigate = useNavigate()
-    const [postos, setPostos] = useState([])
-    const [carregando, setCarregando] = useState(true)
-    const [fotoModal, setFotoModal] = useState(null)
-    const [fotoTitulo, setFotoTitulo] = useState('')
-    const [confirmacao, setConfirmacao] = useState(null)
-    const [dataHoje] = useState(new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }))
+  const navigate = useNavigate()
+  const [registros, setRegistros] = useState([])
+  const [filtroPosto, setFiltroPosto] = useState('todos')
+  const [filtroData, setFiltroData] = useState('')
+  const [confirmaApagar, setConfirmaApagar] = useState(false)
+  const [hora, setHora] = useState('')
+  const [gerando, setGerando] = useState(false)
 
-    const logout = useCallback(() => {
-        localStorage.removeItem('tokenAdmin')
-        localStorage.removeItem('tipoUsuario')
-        navigate('/login')
-    }, [navigate])
+  const logout = useCallback(() => {
+    localStorage.removeItem('tokenAdmin')
+    localStorage.removeItem('tipoUsuario')
+    localStorage.removeItem('nomeUsuario')
+    navigate('/login')
+  }, [navigate])
 
-    useEffect(() => {
-        if (!localStorage.getItem('tokenAdmin')) { navigate('/login'); return }
-        // Carrega os 21 postos vazios
-        setTimeout(() => { setPostos(postosIniciais); setCarregando(false) }, 500)
-    }, [navigate])
+  useEffect(() => {
+    if (!localStorage.getItem('tokenAdmin')) { navigate('/login'); return }
+    setRegistros(JSON.parse(localStorage.getItem('registros') || '[]'))
+    const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
+    setHora(new Date().toLocaleTimeString('pt-BR'))
+    return () => clearInterval(tick)
+  }, [navigate])
 
-    const apagarFotosPessoa = (pessoa) => {
-        setConfirmacao({
-            mensagem: `Apagar as fotos de ${pessoa.nome}? Esta ação não pode ser desfeita.`,
-            onConfirmar: () => {
-                setPostos(prev => prev.map(posto => ({
-                    ...posto,
-                    salvaVidas: posto.salvaVidas.map(sv => sv.id !== pessoa.id ? sv : {
-                        ...sv,
-                        checkin: sv.checkin ? { ...sv.checkin, foto: null } : null,
-                        checkout: sv.checkout ? { ...sv.checkout, foto: null } : null
-                    })
-                })))
-                setConfirmacao(null)
-            }
-        })
+  const filtrados = registros.filter(r => {
+    if (filtroPosto !== 'todos' && r.posto !== filtroPosto) return false
+    if (filtroData) {
+      const dataR = new Date(r.timestamp).toISOString().slice(0, 10)
+      if (dataR !== filtroData) return false
     }
+    return true
+  })
 
-    const apagarHistoricoCompleto = () => {
-        setConfirmacao({
-            mensagem: 'Apagar todo o histórico de fotos do dia? Esta ação não pode ser desfeita.',
-            onConfirmar: () => {
-                setPostos(prev => prev.map(posto => ({
-                    ...posto,
-                    salvaVidas: posto.salvaVidas.map(sv => ({
-                        ...sv,
-                        checkin: sv.checkin ? { ...sv.checkin, foto: null } : null,
-                        checkout: sv.checkout ? { ...sv.checkout, foto: null } : null
-                    }))
-                })))
-                setConfirmacao(null)
-            }
-        })
+  const apagarTudo = () => {
+    localStorage.removeItem('registros')
+    setRegistros([])
+    setConfirmaApagar(false)
+  }
+
+  const handleExportarPDF = async () => {
+    setGerando(true)
+    try {
+      const alvo = filtrados.length < registros.length ? filtrados : registros
+      const totalRelatos = alvo.filter(r => r.tipo === 'checkout' && r.relato).length
+      if (totalRelatos === 0) {
+        alert('Nenhum relato encontrado para exportar.')
+        return
+      }
+      let label = ''
+      if (filtroPosto !== 'todos') label += `Posto: ${filtroPosto}`
+      if (filtroData) label += `${label ? ' · ' : ''}Data: ${new Date(filtroData + 'T12:00:00').toLocaleDateString('pt-BR')}`
+      await exportarRelatorioPDF(alvo, label)
+    } finally {
+      setGerando(false)
     }
+  }
 
-    const total = postos.flatMap(p => p.salvaVidas)
-    const totalPresentes = total.filter(s => s.checkin).length
-    const totalCompletos = total.filter(s => s.checkin && s.checkout).length
+  // Resumo por posto
+  const hoje = new Date().toDateString()
+  const resumoPorPosto = POSTOS.map(posto => {
+    const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && r.posto === posto.nome)
+    const checkins = regsHoje.filter(r => r.tipo === 'checkin').length
+    const checkouts = regsHoje.filter(r => r.tipo === 'checkout').length
+    return { ...posto, checkins, checkouts }
+  }).filter(p => p.checkins > 0 || p.checkouts > 0)
 
-    if (carregando) return <div style={s.loading}><p style={{ color: '#6b7e94' }}>Carregando 21 postos...</p></div>
+  const postosUsados = [...new Set(registros.map(r => r.posto))].filter(Boolean)
+  const totalRelatos = filtrados.filter(r => r.tipo === 'checkout' && r.relato).length
 
-    return (
-        <div style={s.pagina}>
-            <ModalFoto foto={fotoModal} titulo={fotoTitulo} onFechar={() => setFotoModal(null)} />
-            <ModalConfirmar mensagem={confirmacao?.mensagem} onConfirmar={confirmacao?.onConfirmar} onCancelar={() => setConfirmacao(null)} />
-
-            <div style={s.header}>
-                <div>
-                    <div style={s.headerBadge}>Painel Admin</div>
-                    <h1 style={s.headerTitulo}>Registros do Dia</h1>
-                    <p style={s.headerData}>{dataHoje}</p>
-                </div>
-                <div style={s.headerAcoes}>
-                    <button style={s.btnExportar} onClick={() => exportarCSV(postos)}>Exportar CSV</button>
-                    <button style={s.btnApagarTudo} onClick={apagarHistoricoCompleto}>Apagar histórico</button>
-                    <button style={s.btnLogout} onClick={logout}>Sair</button>
-                </div>
+  return (
+    <div className="page">
+      {/* Modal confirmar apagar */}
+      {confirmaApagar && (
+        <div style={s.modal}>
+          <div style={s.modalBox}>
+            <p style={s.modalTxt}>Apagar todo o histórico? Esta ação não pode ser desfeita.</p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmaApagar(false)}>Cancelar</button>
+              <button className="btn btn-danger" style={{ flex: 1 }} onClick={apagarTudo}>Confirmar</button>
             </div>
-
-            <div style={s.resumo}>
-                {[
-                    { num: totalPresentes, label: 'Presentes', cor: '#4ade80' },
-                    { num: totalCompletos, label: 'Finalizados', cor: '#fb923c' },
-                    { num: total.length, label: 'Total Registros', cor: '#94a3b8' },
-                ].map(({ num, label, cor }) => (
-                    <div key={label} style={s.resumoCard}>
-                        <span style={{ ...s.resumoNumero, color: cor }}>{num}</span>
-                        <span style={s.resumoLabel}>{label}</span>
-                    </div>
-                ))}
-            </div>
-
-            <div style={s.conteudo}>
-                {postos.map(posto => {
-                    // Pega as pessoas alocadas para esse posto (virão do check-in no futuro)
-                    const pessoasNoPosto = posto.salvaVidas
-
-                    return (
-                        <div key={`posto-${posto.numero}`}>
-                            <div style={s.postoHeader}>
-                                <h2 style={s.postoNome}>Posto {posto.numero}</h2>
-                                <span style={s.postoContagem}>{pessoasNoPosto.length} {pessoasNoPosto.length === 1 ? 'pessoa' : 'pessoas'}</span>
-                            </div>
-                            
-                            {pessoasNoPosto.length > 0 ? (
-                                <div style={s.grid}>
-                                    {pessoasNoPosto.map((pessoa, i) => (
-                                        <CartaoSalvaVidas 
-                                            key={pessoa.id || i} 
-                                            pessoa={pessoa} 
-                                            onVerFoto={(f, t) => { setFotoModal(f); setFotoTitulo(t) }} 
-                                            onApagarFotos={apagarFotosPessoa} 
-                                        />
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={s.caixaVazia}>
-                                    <p style={s.mensagemVazio}>Aguardando check-in neste posto...</p>
-                                </div>
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
+          </div>
         </div>
-    )
+      )}
+
+      {/* Top bar */}
+      <div className="topbar">
+        <span className="topbar-brand"> ADMIN</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span className="topbar-hora">{hora}</span>
+          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={logout}>Sair</button>
+        </div>
+      </div>
+
+      <div style={s.content}>
+        <h2 style={s.titulo}>PAINEL<br />TENENTE</h2>
+
+        {/* Ações admin */}
+        <div style={s.adminAcoes}>
+          <button
+            className="btn btn-green"
+            style={{ flex: 1, fontSize: '13px', letterSpacing: '1px', opacity: gerando ? 0.6 : 1 }}
+            onClick={handleExportarPDF}
+            disabled={gerando}
+          >
+            {gerando ? 'Gerando PDF...' : `↓ Relatório PDF${totalRelatos > 0 ? ` (${totalRelatos})` : ''}`}
+          </button>
+          <button className="btn btn-danger" style={{ flex: 1, fontSize: '13px', letterSpacing: '1px' }}
+            onClick={() => setConfirmaApagar(true)}>
+            ✕ Apagar Histórico
+          </button>
+        </div>
+
+        {/* Resumo do dia por posto */}
+        {resumoPorPosto.length > 0 && (
+          <div style={{ marginBottom: '24px' }}>
+            <p className="sec-label">Resumo de hoje por posto</p>
+            <div style={s.resumoGrid}>
+              {resumoPorPosto.map(p => (
+                <div key={p.id} className="card" style={s.resumoCard}>
+                  <p style={s.resumoNome}>{p.nome}</p>
+                  <p style={s.resumoLocal}>{p.local}</p>
+                  <div style={s.resumoNums}>
+                    <span style={{ color: '#39e07a', fontFamily: "'DM Mono', monospace", fontSize: '20px' }}>{p.checkins}</span>
+                    <span style={{ color: '#4a6650', fontSize: '12px' }}>ent</span>
+                    <span style={{ color: '#4a6650' }}>·</span>
+                    <span style={{ color: '#f5a623', fontFamily: "'DM Mono', monospace", fontSize: '20px' }}>{p.checkouts}</span>
+                    <span style={{ color: '#4a6650', fontSize: '12px' }}>saí</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Filtros */}
+        <p className="sec-label">Todos os registros</p>
+        <div style={s.filtros}>
+          <select className="select" style={{ flex: 1, fontSize: '13px', padding: '8px 12px' }}
+            value={filtroPosto} onChange={e => setFiltroPosto(e.target.value)}>
+            <option value="todos">Todos os postos</option>
+            {postosUsados.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <input className="input" type="date" style={{ flex: 1, fontSize: '13px', padding: '8px 12px' }}
+            value={filtroData} onChange={e => setFiltroData(e.target.value)} />
+        </div>
+
+        <p style={s.contagem}>{filtrados.length} registro{filtrados.length !== 1 ? 's' : ''}{totalRelatos > 0 ? ` · ${totalRelatos} relato${totalRelatos !== 1 ? 's' : ''}` : ''}</p>
+
+        {filtrados.length === 0
+          ? <div style={s.vazio}><p>Nenhum registro.</p></div>
+          : (
+            <div style={s.lista}>
+              {filtrados.map(r => <RegistroRow key={r.id} r={r} />)}
+            </div>
+          )
+        }
+      </div>
+    </div>
+  )
 }
 
 const s = {
-    pagina: { minHeight: '100vh', background: '#0f1923', fontFamily: "'DM Sans', sans-serif", color: '#f0f4f8', paddingBottom: '60px' },
-    loading: { minHeight: '100vh', background: '#0f1923', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif" },
-    header: { padding: '32px 32px 24px', borderBottom: '1px solid #1e2d3d', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' },
-    headerBadge: { display: 'inline-block', background: '#1e3a5f', color: '#5ba3f5', fontSize: '11px', fontWeight: '600', padding: '3px 10px', borderRadius: '20px', letterSpacing: '0.5px', marginBottom: '10px', textTransform: 'uppercase' },
-    headerTitulo: { fontSize: '26px', fontWeight: '600', margin: '0 0 4px', letterSpacing: '-0.5px' },
-    headerData: { color: '#6b7e94', fontSize: '14px', margin: 0, textTransform: 'capitalize' },
-    headerAcoes: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-    btnExportar: { background: '#14532d', border: '1px solid #166534', color: '#4ade80', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
-    btnApagarTudo: { background: '#2d1515', border: '1px solid #7f1d1d', color: '#f87171', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
-    btnLogout: { background: 'none', border: '1px solid #2a3a50', color: '#6b7e94', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
-    resumo: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: '#1e2d3d', borderBottom: '1px solid #1e2d3d' },
-    resumoCard: { background: '#0f1923', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '4px' },
-    resumoNumero: { fontSize: '28px', fontWeight: '600', lineHeight: 1 },
-    resumoLabel: { fontSize: '12px', color: '#4a6280', textTransform: 'uppercase', letterSpacing: '0.5px' },
-    conteudo: { padding: '32px', display: 'flex', flexDirection: 'column', gap: '40px' },
-    postoHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '8px', borderBottom: '1px solid #1a2535' },
-    postoNome: { fontSize: '16px', fontWeight: '600', margin: 0, color: '#c8d8e8' },
-    postoContagem: { fontSize: '12px', color: '#4a6280', background: '#1a2535', padding: '3px 10px', borderRadius: '20px' },
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' },
-    caixaVazia: { background: 'rgba(26, 37, 53, 0.4)', border: '1px dashed #2a3a50', borderRadius: '12px', padding: '24px', textAlign: 'center' },
-    mensagemVazio: { color: '#4a6280', fontSize: '13px', margin: 0 },
-    cartao: { background: '#1a2535', borderRadius: '12px', padding: '16px', border: '1px solid #2a3a50' },
-    cartaoTopo: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
-    avatar: { width: '38px', height: '38px', borderRadius: '50%', background: '#1e3a5f', color: '#5ba3f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: '600', flexShrink: 0 },
-    cartaoInfo: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' },
-    cartaoNome: { fontSize: '14px', fontWeight: '500', color: '#e2eaf2' },
-    badge: { fontSize: '11px', fontWeight: '500', padding: '2px 8px', borderRadius: '20px', display: 'inline-block' },
-    badgeCompleto: { background: '#14532d', color: '#4ade80' },
-    badgeAndamento: { background: '#1e3a5f', color: '#60a5fa' },
-    badgeAusente: { background: '#2d1515', color: '#f87171' },
-    btnApagar: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', opacity: 0.5, padding: '4px', borderRadius: '4px', lineHeight: 1 },
-    registros: { display: 'flex', gap: '12px', background: '#0f1923', borderRadius: '8px', padding: '12px' },
-    registro: { flex: 1, display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' },
-    registroLabel: { fontSize: '11px', color: '#4a6280', textTransform: 'uppercase', letterSpacing: '0.5px' },
-    registroHora: { fontSize: '18px', fontWeight: '600', fontFamily: "'DM Mono', monospace" },
-    divisorVertical: { width: '1px', background: '#1e2d3d' },
-    btnFoto: { background: 'none', border: '1px solid #2a3a50', color: '#5ba3f5', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: '2px' },
-    modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' },
-    modalConteudo: { background: '#1a2535', borderRadius: '12px', overflow: 'hidden', maxWidth: '480px', width: '100%', border: '1px solid #2a3a50' },
-    modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #2a3a50' },
-    modalTitulo: { fontSize: '14px', fontWeight: '500', color: '#c8d8e8' },
-    modalFechar: { background: 'none', border: 'none', color: '#6b7e94', fontSize: '16px', cursor: 'pointer' },
-    btnCancelar: { background: 'none', border: '1px solid #2a3a50', color: '#6b7e94', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
-    btnConfirmarApagar: { background: '#7f1d1d', border: 'none', color: '#fca5a5', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" },
+  content: { padding: '20px' },
+  titulo: { fontFamily: "'Bebas Neue', sans-serif", fontSize: '36px', letterSpacing: '3px', color: '#f0f8f2', lineHeight: 1, marginBottom: '20px' },
+  adminAcoes: { display: 'flex', gap: '10px', marginBottom: '24px' },
+  resumoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' },
+  resumoCard: { padding: '12px' },
+  resumoNome: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '13px', fontWeight: 600, letterSpacing: '.5px', color: '#d4e8d8', marginBottom: '2px' },
+  resumoLocal: { fontFamily: "'Barlow', sans-serif", fontSize: '10px', color: '#4a6650', marginBottom: '8px' },
+  resumoNums: { display: 'flex', alignItems: 'center', gap: '4px' },
+  filtros: { display: 'flex', gap: '10px', marginBottom: '12px' },
+  contagem: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '12px', letterSpacing: '1px', color: '#4a6650', marginBottom: '12px' },
+  lista: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  row: { background: '#111a15', border: '1px solid #1e3020', borderRadius: '8px', display: 'flex', gap: '12px', padding: '12px', alignItems: 'flex-start' },
+  rowFoto: { width: '52px', height: '52px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, background: '#060a08' },
+  rowNome: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '15px', fontWeight: 600, color: '#d4e8d8' },
+  rowPosto: { fontFamily: "'Barlow', sans-serif", fontSize: '12px', color: '#4a6650', marginBottom: '2px' },
+  rowHora: { fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#4a6650' },
+  vazio: { padding: '40px 0', textAlign: 'center', color: '#4a6650', fontFamily: "'Barlow', sans-serif" },
+  btnRelato: { background: 'none', border: '1px solid #1e3020', borderRadius: '4px', color: '#4a6650', fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', padding: '2px 7px', cursor: 'pointer' },
+  relatoBox: { marginTop: '10px', background: '#0a0f0d', border: '1px solid #1e3020', borderRadius: '6px', padding: '12px' },
+  relatoLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', color: '#4a6650', marginBottom: '6px' },
+  relatoTexto: { fontFamily: "'Barlow', sans-serif", fontSize: '13px', color: '#d4e8d8', lineHeight: 1.6, whiteSpace: 'pre-wrap' },
+  modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
+  modalBox: { background: '#111a15', border: '1px solid #1e3020', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '360px' },
+  modalTxt: { fontFamily: "'Barlow', sans-serif", fontSize: '15px', color: '#d4e8d8', marginBottom: '20px', lineHeight: 1.5 },
 }
