@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Inicio } from './components/Inicio'
 import { Login } from './components/Login'
 import { Dashboard } from './components/Dashboard'
 import { CheckIn } from './components/CheckIn'
@@ -20,6 +21,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Início público */}
+        <Route path="/" element={<Inicio />} />
         <Route path="/login" element={<Login />} />
 
         {/* Salva-vidas */}
@@ -30,12 +33,7 @@ function App() {
 
         {/* Admin */}
         <Route path="/admin" element={<RotaAdmin><AdminDashboard /></RotaAdmin>} />
-
-        {/* Histórico também acessível pelo admin */}
         <Route path="/admin/historico" element={<RotaAdmin><Historico /></RotaAdmin>} />
-
-        {/* Redireciona raiz */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   )
