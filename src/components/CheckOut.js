@@ -1,14 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { POSTOS } from '../postos'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { POSTOS, formatPosto, getRegistroPostoId } from '../postos'
 import '../global.css'
+
+const relatorioInicial = {
+  matutino: { prevencoes: '', incidentes: '' },
+  vespertino: { prevencoes: '', incidentes: '' },
+  lesoesAguaViva: '',
+}
+
+const numero = valor => Number(valor) || 0
 
 export function CheckOut() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const fileRef = useRef(null)
-  const [posto, setPosto] = useState('')
+  const [posto, setPosto] = useState(searchParams.get('posto') || '')
   const [foto, setFoto] = useState(null)
-  const [relato, setRelato] = useState('')
+  const [relatorio, setRelatorio] = useState(relatorioInicial)
   const [enviando, setEnviando] = useState(false)
   const [sucesso, setSucesso] = useState(false)
   const [hora, setHora] = useState('')
@@ -16,17 +25,37 @@ export function CheckOut() {
 
   useEffect(() => {
     if (!localStorage.getItem('token')) { navigate('/login'); return }
-    const registros = JSON.parse(localStorage.getItem('registros') || '[]')
-    const hoje = new Date().toDateString()
-    const checkinHoje = registros.find(r => r.tipo === 'checkin' && r.usuario === nome && new Date(r.timestamp).toDateString() === hoje)
-    if (checkinHoje) {
-      const postoId = POSTOS.find(p => p.nome === checkinHoje.posto)?.id
+    if (!searchParams.get('posto')) {
+      const registros = JSON.parse(localStorage.getItem('registros') || '[]')
+      const hoje = new Date().toDateString()
+      const checkinHoje = registros.find(r => r.tipo === 'checkin' && (r.loginUsuario === nome || r.usuario === nome) && new Date(r.timestamp).toDateString() === hoje)
+      const postoId = getRegistroPostoId(checkinHoje)
       if (postoId) setPosto(String(postoId))
     }
     const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
     setHora(new Date().toLocaleTimeString('pt-BR'))
     return () => clearInterval(tick)
-  }, [navigate, nome])
+  }, [navigate, nome, searchParams])
+
+  const atualizarRelatorio = (turno, campo, valor) => {
+    const normalizado = valor === '' ? '' : String(Math.max(0, Number(valor) || 0))
+    setRelatorio(atual => ({
+      ...atual,
+      [turno]: {
+        ...atual[turno],
+        [campo]: normalizado,
+      },
+    }))
+  }
+
+  const atualizarLesoes = valor => {
+    const normalizado = valor === '' ? '' : String(Math.max(0, Number(valor) || 0))
+    setRelatorio(atual => ({ ...atual, lesoesAguaViva: normalizado }))
+  }
+
+  const totalMatutino = numero(relatorio.matutino.prevencoes) + numero(relatorio.matutino.incidentes)
+  const totalVespertino = numero(relatorio.vespertino.prevencoes) + numero(relatorio.vespertino.incidentes)
+  const totalGeral = totalMatutino + totalVespertino + numero(relatorio.lesoesAguaViva)
 
   const handleFoto = (e) => {
     const file = e.target.files[0]
@@ -37,13 +66,38 @@ export function CheckOut() {
   }
 
   const confirmar = async () => {
-    if (!posto || !foto || !relato.trim()) return
+    if (!posto || !foto) return
     setEnviando(true)
     try {
       await new Promise(r => setTimeout(r, 800))
       const agora = new Date()
       const postoObj = POSTOS.find(p => p.id === Number(posto))
-      const registro = { id: Date.now(), tipo: 'checkout', usuario: nome, posto: postoObj.nome, postoLocal: postoObj.local, foto, relato: relato.trim(), timestamp: agora.toISOString() }
+      if (!postoObj) return
+      const registro = {
+        id: Date.now(),
+        tipo: 'checkout',
+        usuario: nome,
+        loginUsuario: nome,
+        postoId: postoObj.id,
+        posto: postoObj.nome,
+        postoLocal: postoObj.local,
+        foto,
+        relatorio: {
+          matutino: {
+            prevencoes: numero(relatorio.matutino.prevencoes),
+            incidentes: numero(relatorio.matutino.incidentes),
+            total: totalMatutino,
+          },
+          vespertino: {
+            prevencoes: numero(relatorio.vespertino.prevencoes),
+            incidentes: numero(relatorio.vespertino.incidentes),
+            total: totalVespertino,
+          },
+          lesoesAguaViva: numero(relatorio.lesoesAguaViva),
+          totalGeral,
+        },
+        timestamp: agora.toISOString(),
+      }
       const existentes = JSON.parse(localStorage.getItem('registros') || '[]')
       localStorage.setItem('registros', JSON.stringify([registro, ...existentes]))
       setSucesso(true)
@@ -60,7 +114,7 @@ export function CheckOut() {
       <div className="sucesso-icon">✓</div>
       <h2 className="sucesso-h">CHECK-OUT<br />REALIZADO</h2>
       <p className="sucesso-hora">{hora}</p>
-      <p className="sucesso-sub">{POSTOS.find(p => p.id === Number(posto))?.nome} · {POSTOS.find(p => p.id === Number(posto))?.local}</p>
+      <p className="sucesso-sub">{formatPosto(posto)}</p>
     </div>
   )
 
@@ -80,24 +134,98 @@ export function CheckOut() {
           <label style={s.label}>Posto de serviço</label>
           <select className="select" value={posto} onChange={e => setPosto(e.target.value)}>
             <option value="">Selecione o posto...</option>
-            {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome} — {p.local}</option>)}
+            {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
         </div>
 
         <div style={s.field}>
-          <label style={s.label}>Relato do turno</label>
-          <textarea
-            className="input"
-            rows={5}
-            placeholder="Descreva ocorrências, condições do mar, intercorrências e observações do turno..."
-            value={relato}
-            onChange={e => setRelato(e.target.value)}
-          />
-          <p style={s.hint}>Acesso restrito ao Tenente / Administrador.</p>
+          <label style={s.label}>Relatório do check-out</label>
+          <div style={s.turnosGrid}>
+            <div style={{ ...s.turnoCard, borderLeftColor: '#c9a84c' }}>
+              <p style={{ ...s.turnoTitulo, color: '#c9a84c' }}>Turno Matutino</p>
+              <div style={s.inputsGrid}>
+                <label style={s.inputLabel}>
+                  Prevenções
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={relatorio.matutino.prevencoes}
+                    onChange={e => atualizarRelatorio('matutino', 'prevencoes', e.target.value)}
+                  />
+                </label>
+                <label style={s.inputLabel}>
+                  Incidentes
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={relatorio.matutino.incidentes}
+                    onChange={e => atualizarRelatorio('matutino', 'incidentes', e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div style={{ ...s.turnoCard, borderLeftColor: '#2a63d8' }}>
+              <p style={{ ...s.turnoTitulo, color: '#8aa7ff' }}>Turno Vespertino</p>
+              <div style={s.inputsGrid}>
+                <label style={s.inputLabel}>
+                  Prevenções
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={relatorio.vespertino.prevencoes}
+                    onChange={e => atualizarRelatorio('vespertino', 'prevencoes', e.target.value)}
+                  />
+                </label>
+                <label style={s.inputLabel}>
+                  Incidentes
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={relatorio.vespertino.incidentes}
+                    onChange={e => atualizarRelatorio('vespertino', 'incidentes', e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div style={s.fieldCompact}>
+            <label style={s.inputLabel}>
+              Lesões por água-viva
+              <input
+                className="input"
+                type="number"
+                min="0"
+                inputMode="numeric"
+                placeholder="0"
+                value={relatorio.lesoesAguaViva}
+                onChange={e => atualizarLesoes(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div style={s.totalBox}>
+            <span style={s.totalLabel}>Total geral</span>
+            <strong style={s.totalNumero}>{totalGeral}</strong>
+            <span style={s.totalSub}>Matutino: {totalMatutino} · Vespertino: {totalVespertino}</span>
+          </div>
         </div>
 
         <div style={s.field}>
-          <label style={s.label}>Foto de encerramento</label>
+          <label style={s.label}>Foto obrigatória</label>
           <div className="foto-area" onClick={() => fileRef.current.click()} style={{ cursor: 'pointer', minHeight: '180px' }}>
             {foto
               ? <img src={foto} alt="preview" />
@@ -115,8 +243,8 @@ export function CheckOut() {
           )}
         </div>
 
-        <button className="btn btn-navy btn-full" style={s.btnConfirm} onClick={confirmar} disabled={!posto || !foto || !relato.trim() || enviando}>
-          {enviando ? 'Registrando...' : 'Confirmar Saída'}
+        <button className="btn btn-navy btn-full" style={s.btnConfirm} onClick={confirmar} disabled={!posto || !foto || enviando}>
+          {enviando ? 'Registrando...' : 'Registrar Check-out'}
         </button>
       </div>
     </div>
@@ -128,7 +256,16 @@ const s = {
   titulo: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '36px', fontWeight: 700, letterSpacing: '3px', color: '#f5f8fc', lineHeight: 1, marginBottom: '12px' },
   field: { marginBottom: '18px' },
   label: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 700, letterSpacing: '2.5px', textTransform: 'uppercase', color: '#6a8aaa', display: 'block', marginBottom: '8px' },
+  turnosGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '14px' },
+  turnoCard: { background: '#112a4d', border: '1px solid #1a3358', borderLeft: '3px solid #c9a84c', borderRadius: '8px', padding: '14px' },
+  turnoTitulo: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '15px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '12px' },
+  inputsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+  inputLabel: { display: 'flex', flexDirection: 'column', gap: '7px', fontFamily: "'Barlow Condensed', sans-serif", fontSize: '11px', fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#e8eef5' },
+  fieldCompact: { marginBottom: '14px' },
+  totalBox: { background: 'linear-gradient(100deg, #0f7f95, #1d56c9)', borderRadius: '8px', padding: '18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', boxShadow: '0 10px 24px rgba(0,0,0,.22)' },
+  totalLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '14px', fontWeight: 700, letterSpacing: '1px', color: '#f5f8fc' },
+  totalNumero: { fontFamily: "'DM Mono', monospace", fontSize: '40px', lineHeight: 1, color: '#fff' },
+  totalSub: { fontFamily: "'Barlow', sans-serif", fontSize: '12px', color: '#dce8ff' },
   placeholder: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '32px' },
   btnConfirm: { fontSize: '15px', padding: '15px', letterSpacing: '2px', marginTop: '4px' },
-  hint: { fontFamily: "'Barlow', sans-serif", fontSize: '11px', color: '#2a4a72', marginTop: '6px', fontStyle: 'italic' },
 }

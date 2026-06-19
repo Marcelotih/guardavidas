@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom'
+import selo100Anos from '../assets/cbmsc-100-anos.svg'
+import bombeirosLogo from '../assets/cbmsc-bombeiros.svg'
 import '../global.css'
 
 const MISSOES = [
@@ -25,7 +27,7 @@ export function Inicio() {
       <header style={s.appbar}>
         <div style={s.appbarInner}>
           <div style={s.appbarBrand}>
-            <span style={s.appbarEscudo}>⚑</span>
+            <img src={bombeirosLogo} alt="Corpo de Bombeiros Militar" style={s.appbarLogo} />
             <div>
               <p style={s.appbarTitle}>CBMSC</p>
               <p style={s.appbarSub}>Corpo de Bombeiros Militar de SC</p>
@@ -74,7 +76,9 @@ export function Inicio() {
             </a>
           </div>
         </div>
-        <div style={s.heroDecor} />
+        <div style={s.heroSeal}>
+          <img src={selo100Anos} alt="CBMSC 100 anos" style={s.heroSealImg} />
+        </div>
       </section>
 
       {/* ── Números ── */}
@@ -175,7 +179,7 @@ const s = {
   appbar: { position: 'sticky', top: 0, zIndex: 100, background: '#0d2340', borderBottom: '2px solid #c9a84c' },
   appbarInner: { maxWidth: '1100px', margin: '0 auto', padding: '0 24px', height: '58px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   appbarBrand: { display: 'flex', alignItems: 'center', gap: '12px' },
-  appbarEscudo: { fontSize: '26px', color: '#c9a84c', lineHeight: 1 },
+  appbarLogo: { width: '42px', height: '42px', objectFit: 'contain', flexShrink: 0, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.25))' },
   appbarTitle: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '16px', fontWeight: 700, letterSpacing: '3px', color: '#c9a84c', lineHeight: 1 },
   appbarSub: { fontFamily: "'Barlow', sans-serif", fontSize: '10px', color: '#6a8aaa', marginTop: '2px' },
   appbarNav: { display: 'flex', alignItems: 'center', gap: '12px' },
@@ -185,8 +189,9 @@ const s = {
   // Hero
   hero: { position: 'relative', minHeight: '92vh', background: 'linear-gradient(160deg, #060f1e 0%, #0d2340 40%, #112a4d 100%)', display: 'flex', alignItems: 'center', overflow: 'hidden' },
   heroOverlay: { position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 80% 50%, rgba(201,168,76,.06) 0%, transparent 60%)' },
-  heroDecor: { position: 'absolute', right: '-60px', top: '50%', transform: 'translateY(-50%)', width: '400px', height: '400px', border: '1px solid rgba(201,168,76,.08)', borderRadius: '50%', pointerEvents: 'none' },
-  heroContent: { position: 'relative', zIndex: 1, maxWidth: '1100px', margin: '0 auto', padding: '80px 24px' },
+  heroSeal: { position: 'absolute', right: 'clamp(-34px, 5vw, 92px)', top: '50%', transform: 'translateY(-48%)', width: 'clamp(220px, 29vw, 390px)', aspectRatio: '1', pointerEvents: 'none', opacity: 0.96, zIndex: 1 },
+  heroSealImg: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
+  heroContent: { position: 'relative', zIndex: 2, maxWidth: '1100px', margin: '0 auto', padding: '80px 24px' },
   heroEyebrow: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '12px', fontWeight: 600, letterSpacing: '3px', color: '#c9a84c', textTransform: 'uppercase', marginBottom: '20px' },
   heroTitle: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: 'clamp(52px, 9vw, 100px)', fontWeight: 700, letterSpacing: '4px', lineHeight: 0.95, color: '#f5f8fc', marginBottom: '28px' },
   heroTitleGold: { color: '#c9a84c' },

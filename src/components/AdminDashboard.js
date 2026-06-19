@@ -1,9 +1,37 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { POSTOS } from '../postos'
+import { POSTOS, formatPosto, getRegistroPostoId, sortRegistrosPorPosto } from '../postos'
 import '../global.css'
 
-// Gera PDF dos relatórios (somente checkouts com relato) usando jsPDF via CDN
+function getRelatorioCheckout(registro) {
+  const relatorio = registro?.relatorio
+  if (!relatorio) return null
+
+  const matutino = relatorio.matutino || {}
+  const vespertino = relatorio.vespertino || {}
+  const matutinoTotal = Number(matutino.total ?? (Number(matutino.prevencoes) || 0) + (Number(matutino.incidentes) || 0))
+  const vespertinoTotal = Number(vespertino.total ?? (Number(vespertino.prevencoes) || 0) + (Number(vespertino.incidentes) || 0))
+  const lesoesAguaViva = Number(relatorio.lesoesAguaViva) || 0
+
+  return {
+    matutino: {
+      prevencoes: Number(matutino.prevencoes) || 0,
+      incidentes: Number(matutino.incidentes) || 0,
+      total: matutinoTotal,
+    },
+    vespertino: {
+      prevencoes: Number(vespertino.prevencoes) || 0,
+      incidentes: Number(vespertino.incidentes) || 0,
+      total: vespertinoTotal,
+    },
+    lesoesAguaViva,
+    totalGeral: Number(relatorio.totalGeral ?? matutinoTotal + vespertinoTotal + lesoesAguaViva),
+  }
+}
+
+const temRelatorioCheckout = registro => registro.tipo === 'checkout' && (getRelatorioCheckout(registro) || registro.relato)
+
+// Gera PDF dos relatórios de check-out usando jsPDF via CDN
 async function exportarRelatorioPDF(registros, filtroLabel) {
   // Carrega jsPDF dinamicamente
   if (!window.jspdf) {
@@ -19,7 +47,7 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
   const { jsPDF } = window.jspdf
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-  const relatos = registros.filter(r => r.tipo === 'checkout' && r.relato)
+  const relatorios = sortRegistrosPorPosto(registros.filter(temRelatorioCheckout))
   const dataGeracao = new Date().toLocaleString('pt-BR')
   const W = 210
   const margin = 18
@@ -35,7 +63,7 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
   doc.setFontSize(9)
   doc.setTextColor(74, 102, 80)
   doc.setFont('helvetica', 'normal')
-  doc.text('Relatório de Ocorrências e Relatos de Turno', margin, 23)
+  doc.text('Relatório de Check-out por Posto', margin, 23)
   doc.text(`Gerado em: ${dataGeracao}`, margin, 29)
   if (filtroLabel) doc.text(`Filtro: ${filtroLabel}`, margin, 34)
 
@@ -50,18 +78,18 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
       doc.setFontSize(8)
       doc.setTextColor(74, 102, 80)
       doc.setFont('helvetica', 'normal')
-      doc.text('SALVA-VIDAS SC — Relatório de Relatos', margin, 9)
+      doc.text('SALVA-VIDAS SC — Relatório de Check-out', margin, 9)
       y = 22
     }
   }
 
-  if (relatos.length === 0) {
+  if (relatorios.length === 0) {
     doc.setFontSize(12)
     doc.setTextColor(74, 102, 80)
     doc.setFont('helvetica', 'italic')
-    doc.text('Nenhum relato encontrado para os filtros selecionados.', margin, y)
+    doc.text('Nenhum relatório encontrado para os filtros selecionados.', margin, y)
   } else {
-    relatos.forEach((r, i) => {
+    relatorios.forEach((r, i) => {
       const data = new Date(r.timestamp)
       const dataStr = data.toLocaleDateString('pt-BR')
       const horaStr = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -93,30 +121,38 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
       doc.setFontSize(9)
       doc.setTextColor(74, 102, 80)
       doc.setFont('helvetica', 'normal')
-      doc.text(`${r.posto}  ·  ${dataStr} às ${horaStr}`, margin, y)
+      doc.text(`${formatPosto(r.postoId || r.posto)}  ·  ${dataStr} às ${horaStr}`, margin, y)
 
-      // Caixa do relato
+      // Caixa do relatório
       y += 5
-      const linhasRelato = doc.splitTextToSize(r.relato, maxW - 8)
-      const alturaRelato = linhasRelato.length * 5 + 8
+      const relatorio = getRelatorioCheckout(r)
+      const linhasRelatorio = relatorio
+        ? [
+            `Matutino - Prevenções: ${relatorio.matutino.prevencoes} | Incidentes: ${relatorio.matutino.incidentes} | Total: ${relatorio.matutino.total}`,
+            `Vespertino - Prevenções: ${relatorio.vespertino.prevencoes} | Incidentes: ${relatorio.vespertino.incidentes} | Total: ${relatorio.vespertino.total}`,
+            `Lesões por água-viva: ${relatorio.lesoesAguaViva}`,
+            `Total geral: ${relatorio.totalGeral}`,
+          ]
+        : doc.splitTextToSize(r.relato, maxW - 8)
+      const alturaRelatorio = linhasRelatorio.length * 5 + 10
 
-      checkPage(alturaRelato + 4)
+      checkPage(alturaRelatorio + 4)
 
       doc.setFillColor(10, 15, 10)
       doc.setDrawColor(30, 48, 32)
-      doc.roundedRect(margin, y, maxW, alturaRelato, 2, 2, 'FD')
+      doc.roundedRect(margin, y, maxW, alturaRelatorio, 2, 2, 'FD')
 
       doc.setFontSize(7)
       doc.setTextColor(74, 102, 80)
       doc.setFont('helvetica', 'bold')
-      doc.text('RELATO DO TURNO', margin + 4, y + 5)
+      doc.text(relatorio ? 'RELATÓRIO DO CHECK-OUT' : 'RELATO DO TURNO', margin + 4, y + 5)
 
       doc.setFontSize(9.5)
       doc.setTextColor(212, 232, 216)
       doc.setFont('helvetica', 'normal')
-      doc.text(linhasRelato, margin + 4, y + 11)
+      doc.text(linhasRelatorio, margin + 4, y + 11)
 
-      y += alturaRelato + 10
+      y += alturaRelatorio + 10
     })
   }
 
@@ -131,7 +167,7 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
     doc.text('Documento confidencial — acesso restrito ao Tenente/Admin', margin, 290)
   }
 
-  const fileName = `relatorio_relatos_${new Date().toISOString().slice(0, 10)}.pdf`
+  const fileName = `relatorio_checkout_${new Date().toISOString().slice(0, 10)}.pdf`
   doc.save(fileName)
 }
 
@@ -143,7 +179,7 @@ function ModalFotoAdmin({ foto, usuario, posto, timestamp, tipo, onFechar }) {
         <div style={ms.header}>
           <div>
             <p style={ms.nome}>{usuario}</p>
-            <p style={ms.info}>{posto} · {new Date(timestamp).toLocaleString('pt-BR')}</p>
+            <p style={ms.info}>{formatPosto(posto)} · {new Date(timestamp).toLocaleString('pt-BR')}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span className={`badge ${tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`}>
@@ -170,7 +206,8 @@ const ms = {
 function RegistroRow({ r }) {
   const [aberto, setAberto] = useState(false)
   const [fotoAberta, setFotoAberta] = useState(false)
-  const temRelato = r.tipo === 'checkout' && r.relato
+  const relatorio = getRelatorioCheckout(r)
+  const temRelatorio = r.tipo === 'checkout' && (relatorio || r.relato)
 
   return (
     <>
@@ -178,7 +215,7 @@ function RegistroRow({ r }) {
         <ModalFotoAdmin
           foto={r.foto}
           usuario={r.usuario}
-          posto={r.posto}
+          posto={r.postoId || r.posto}
           timestamp={r.timestamp}
           tipo={r.tipo}
           onFechar={() => setFotoAberta(false)}
@@ -195,18 +232,43 @@ function RegistroRow({ r }) {
             {r.tipo === 'checkin' ? 'ENT' : 'SAÍ'}
           </span>
           <span style={s.rowNome}>{r.usuario}</span>
-          {temRelato && (
+          {temRelatorio && (
             <button onClick={() => setAberto(!aberto)} style={s.btnRelato}>
-              {aberto ? '▲ relato' : '▼ relato'}
+              {aberto ? '▲ relatório' : '▼ relatório'}
             </button>
           )}
         </div>
-        <p style={s.rowPosto}>{r.posto}</p>
+        <p style={s.rowPosto}>{formatPosto(r.postoId || r.posto)}</p>
         <p style={s.rowHora}>{new Date(r.timestamp).toLocaleString('pt-BR')}</p>
-        {temRelato && aberto && (
+        {temRelatorio && aberto && (
           <div style={s.relatoBox}>
-            <p style={s.relatoLabel}>Relato do turno</p>
-            <p style={s.relatoTexto}>{r.relato}</p>
+            <p style={s.relatoLabel}>{relatorio ? 'Relatório do check-out' : 'Relato do turno'}</p>
+            {relatorio ? (
+              <div style={s.relatorioGrid}>
+                <div style={s.relatorioItem}>
+                  <span style={s.relatorioNome}>Matutino</span>
+                  <span style={s.relatorioValor}>Prev. {relatorio.matutino.prevencoes} · Inc. {relatorio.matutino.incidentes}</span>
+                  <strong style={s.relatorioTotal}>{relatorio.matutino.total}</strong>
+                </div>
+                <div style={s.relatorioItem}>
+                  <span style={s.relatorioNome}>Vespertino</span>
+                  <span style={s.relatorioValor}>Prev. {relatorio.vespertino.prevencoes} · Inc. {relatorio.vespertino.incidentes}</span>
+                  <strong style={s.relatorioTotal}>{relatorio.vespertino.total}</strong>
+                </div>
+                <div style={s.relatorioItem}>
+                  <span style={s.relatorioNome}>Água-viva</span>
+                  <span style={s.relatorioValor}>Lesões registradas</span>
+                  <strong style={s.relatorioTotal}>{relatorio.lesoesAguaViva}</strong>
+                </div>
+                <div style={{ ...s.relatorioItem, borderColor: '#c9a84c' }}>
+                  <span style={s.relatorioNome}>Total geral</span>
+                  <span style={s.relatorioValor}>Ocorrências do posto</span>
+                  <strong style={{ ...s.relatorioTotal, color: '#c9a84c' }}>{relatorio.totalGeral}</strong>
+                </div>
+              </div>
+            ) : (
+              <p style={s.relatoTexto}>{r.relato}</p>
+            )}
           </div>
         )}
       </div>
@@ -240,13 +302,14 @@ export function AdminDashboard() {
   }, [navigate])
 
   const filtrados = registros.filter(r => {
-    if (filtroPosto !== 'todos' && r.posto !== filtroPosto) return false
+    if (filtroPosto !== 'todos' && String(getRegistroPostoId(r)) !== filtroPosto) return false
     if (filtroData) {
       const dataR = new Date(r.timestamp).toISOString().slice(0, 10)
       if (dataR !== filtroData) return false
     }
     return true
   })
+  const filtradosOrdenados = sortRegistrosPorPosto(filtrados)
 
   const apagarTudo = () => {
     localStorage.removeItem('registros')
@@ -258,13 +321,13 @@ export function AdminDashboard() {
     setGerando(true)
     try {
       const alvo = filtrados.length < registros.length ? filtrados : registros
-      const totalRelatos = alvo.filter(r => r.tipo === 'checkout' && r.relato).length
-      if (totalRelatos === 0) {
-        alert('Nenhum relato encontrado para exportar.')
+      const totalRelatoriosAlvo = alvo.filter(temRelatorioCheckout).length
+      if (totalRelatoriosAlvo === 0) {
+        alert('Nenhum relatório encontrado para exportar.')
         return
       }
       let label = ''
-      if (filtroPosto !== 'todos') label += `Posto: ${filtroPosto}`
+      if (filtroPosto !== 'todos') label += `Posto: ${formatPosto(filtroPosto)}`
       if (filtroData) label += `${label ? ' · ' : ''}Data: ${new Date(filtroData + 'T12:00:00').toLocaleDateString('pt-BR')}`
       await exportarRelatorioPDF(alvo, label)
     } finally {
@@ -275,14 +338,13 @@ export function AdminDashboard() {
   // Resumo por posto
   const hoje = new Date().toDateString()
   const resumoPorPosto = POSTOS.map(posto => {
-    const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && r.posto === posto.nome)
+    const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && getRegistroPostoId(r) === posto.id)
     const checkins = regsHoje.filter(r => r.tipo === 'checkin').length
     const checkouts = regsHoje.filter(r => r.tipo === 'checkout').length
     return { ...posto, checkins, checkouts }
   }).filter(p => p.checkins > 0 || p.checkouts > 0)
 
-  const postosUsados = [...new Set(registros.map(r => r.posto))].filter(Boolean)
-  const totalRelatos = filtrados.filter(r => r.tipo === 'checkout' && r.relato).length
+  const totalRelatorios = filtrados.filter(temRelatorioCheckout).length
 
   return (
     <div className="page">
@@ -319,7 +381,7 @@ export function AdminDashboard() {
             onClick={handleExportarPDF}
             disabled={gerando}
           >
-            {gerando ? 'Gerando PDF...' : `↓ Relatório PDF${totalRelatos > 0 ? ` (${totalRelatos})` : ''}`}
+            {gerando ? 'Gerando PDF...' : `↓ Relatório PDF${totalRelatorios > 0 ? ` (${totalRelatorios})` : ''}`}
           </button>
           <button className="btn btn-danger" style={{ flex: 1, fontSize: '13px', letterSpacing: '1px' }}
             onClick={() => setConfirmaApagar(true)}>
@@ -335,7 +397,6 @@ export function AdminDashboard() {
               {resumoPorPosto.map(p => (
                 <div key={p.id} className="card" style={s.resumoCard}>
                   <p style={s.resumoNome}>{p.nome}</p>
-                  <p style={s.resumoLocal}>{p.local}</p>
                   <div style={s.resumoNums}>
                     <span style={{ color: '#27ae60', fontFamily: "'DM Mono', monospace", fontSize: '20px' }}>{p.checkins}</span>
                     <span style={{ color: '#6a8aaa', fontSize: '12px' }}>ent</span>
@@ -355,19 +416,19 @@ export function AdminDashboard() {
           <select className="select" style={{ flex: 1, fontSize: '13px', padding: '8px 12px' }}
             value={filtroPosto} onChange={e => setFiltroPosto(e.target.value)}>
             <option value="todos">Todos os postos</option>
-            {postosUsados.map(p => <option key={p} value={p}>{p}</option>)}
+            {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
           <input className="input" type="date" style={{ flex: 1, fontSize: '13px', padding: '8px 12px' }}
             value={filtroData} onChange={e => setFiltroData(e.target.value)} />
         </div>
 
-        <p style={s.contagem}>{filtrados.length} registro{filtrados.length !== 1 ? 's' : ''}{totalRelatos > 0 ? ` · ${totalRelatos} relato${totalRelatos !== 1 ? 's' : ''}` : ''}</p>
+        <p style={s.contagem}>{filtrados.length} registro{filtrados.length !== 1 ? 's' : ''}{totalRelatorios > 0 ? ` · ${totalRelatorios} relatório${totalRelatorios !== 1 ? 's' : ''}` : ''}</p>
 
         {filtrados.length === 0
           ? <div style={s.vazio}><p>Nenhum registro.</p></div>
           : (
             <div style={s.lista}>
-              {filtrados.map(r => <RegistroRow key={r.id} r={r} />)}
+              {filtradosOrdenados.map(r => <RegistroRow key={r.id} r={r} />)}
             </div>
           )
         }
@@ -399,6 +460,11 @@ const s = {
   relatoBox: { marginTop: '10px', background: '#0a1828', border: '1px solid #1a3358', borderRadius: '6px', padding: '12px' },
   relatoLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 600, letterSpacing: '2px', textTransform: 'uppercase', color: '#6a8aaa', marginBottom: '6px' },
   relatoTexto: { fontFamily: "'Barlow', sans-serif", fontSize: '13px', color: '#e8eef5', lineHeight: 1.6, whiteSpace: 'pre-wrap' },
+  relatorioGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' },
+  relatorioItem: { border: '1px solid #1a3358', borderRadius: '6px', padding: '10px', background: '#0d2340', display: 'flex', flexDirection: 'column', gap: '3px' },
+  relatorioNome: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', textTransform: 'uppercase', color: '#e8eef5' },
+  relatorioValor: { fontFamily: "'Barlow', sans-serif", fontSize: '11px', color: '#6a8aaa' },
+  relatorioTotal: { fontFamily: "'DM Mono', monospace", fontSize: '20px', color: '#e8eef5', lineHeight: 1 },
   modal: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
   modalBox: { background: '#112a4d', border: '1px solid #1a3358', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '360px' },
   modalTxt: { fontFamily: "'Barlow', sans-serif", fontSize: '15px', color: '#e8eef5', marginBottom: '20px', lineHeight: 1.5 },

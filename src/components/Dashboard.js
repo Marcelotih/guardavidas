@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { POSTOS, formatPosto, getRegistroPostoId } from '../postos'
 import '../global.css'
 
 function HistoricoRegistros() {
   const historico = JSON.parse(localStorage.getItem('registros') || '[]')
   const nome = localStorage.getItem('nomeUsuario') || ''
-  const meus = historico.filter(r => r.usuario === nome).slice(0, 5)
+  const meus = historico.filter(r => r.loginUsuario === nome || r.usuario === nome).slice(0, 5)
   if (meus.length === 0) return null
   return (
     <div style={{ padding: '0 20px' }}>
@@ -16,7 +17,7 @@ function HistoricoRegistros() {
             <span className={`badge ${r.tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`}>
               {r.tipo === 'checkin' ? 'Entrada' : 'Saída'}
             </span>
-            <span style={{ flex: 1, fontFamily: "'Barlow', sans-serif", fontSize: '13px', color: '#e8eef5' }}>{r.posto}</span>
+            <span style={{ flex: 1, fontFamily: "'Barlow', sans-serif", fontSize: '13px', color: '#e8eef5' }}>{formatPosto(r.postoId || r.posto)}</span>
             <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '11px', color: '#6a8aaa' }}>
               {new Date(r.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </span>
@@ -30,6 +31,7 @@ function HistoricoRegistros() {
 export function Dashboard() {
   const navigate = useNavigate()
   const [hora, setHora] = useState('')
+  const [postoSelecionado, setPostoSelecionado] = useState('')
   const nome = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
 
   const logout = useCallback(() => {
@@ -48,9 +50,21 @@ export function Dashboard() {
 
   const registros = JSON.parse(localStorage.getItem('registros') || '[]')
   const hoje = new Date().toDateString()
-  const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && r.usuario === nome)
+  const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && (r.loginUsuario === nome || r.usuario === nome))
   const checkinHoje = regsHoje.find(r => r.tipo === 'checkin')
   const checkoutHoje = regsHoje.find(r => r.tipo === 'checkout')
+  const postoCheckinHoje = getRegistroPostoId(checkinHoje)
+
+  useEffect(() => {
+    if (!postoSelecionado && postoCheckinHoje) {
+      setPostoSelecionado(String(postoCheckinHoje))
+    }
+  }, [postoSelecionado, postoCheckinHoje])
+
+  const abrirRegistro = (rota) => {
+    if (!postoSelecionado) return
+    navigate(`${rota}?posto=${postoSelecionado}`)
+  }
 
   return (
     <div className="page">
@@ -103,16 +117,24 @@ export function Dashboard() {
 
         {/* Ações */}
         <div style={s.acoes}>
-          {!checkinHoje && (
-            <button className="btn btn-gold btn-full" style={s.btnAcao} onClick={() => navigate('/checkin')}>
-              Registrar Entrada
-            </button>
-          )}
-          {checkinHoje && !checkoutHoje && (
-            <button className="btn btn-navy btn-full" style={s.btnAcao} onClick={() => navigate('/checkout')}>
-              Registrar Saída
-            </button>
-          )}
+          <div className="card" style={s.selecaoCard}>
+            <div style={s.field}>
+              <label style={s.label}>Selecionar posto</label>
+              <select className="select" value={postoSelecionado} onChange={e => setPostoSelecionado(e.target.value)}>
+                <option value="">Escolha o posto...</option>
+                {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </div>
+            <div style={s.operacoes}>
+              <button className="btn btn-gold btn-full" style={s.btnAcao} onClick={() => abrirRegistro('/checkin')} disabled={!postoSelecionado}>
+                Check-in
+              </button>
+              <button className="btn btn-navy btn-full" style={s.btnAcao} onClick={() => abrirRegistro('/checkout')} disabled={!postoSelecionado}>
+                Check-out
+              </button>
+            </div>
+          </div>
+
           {checkinHoje && checkoutHoje && (
             <div style={s.jornadaOk}>
               <span style={{ fontSize: '20px' }}>✓</span>
@@ -141,6 +163,10 @@ const s = {
   jornadaHora: { fontFamily: "'DM Mono', monospace", fontSize: '30px', fontWeight: 500, lineHeight: 1, transition: 'color .3s' },
   divisor: { width: '1px', height: '56px', background: '#1a3358' },
   acoes: { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '28px' },
+  selecaoCard: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  field: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  label: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#6a8aaa' },
+  operacoes: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
   btnAcao: { fontSize: '15px', padding: '15px', letterSpacing: '2px' },
   jornadaOk: { background: '#0a2010', border: '1px solid #1a5030', borderRadius: '6px', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: '#27ae60', fontFamily: "'Barlow Condensed', sans-serif", fontSize: '15px', letterSpacing: '1.5px' },
 }

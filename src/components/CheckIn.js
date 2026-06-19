@@ -1,17 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { POSTOS } from '../postos'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { POSTOS, formatPosto } from '../postos'
 import '../global.css'
 
 export function CheckIn() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const fileRef = useRef(null)
-  const [posto, setPosto] = useState('')
+  const [posto, setPosto] = useState(searchParams.get('posto') || '')
+  const nomePadrao = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
+  const [nomeRegistro, setNomeRegistro] = useState(nomePadrao === 'Salva-vidas' ? '' : nomePadrao)
   const [foto, setFoto] = useState(null)
   const [enviando, setEnviando] = useState(false)
   const [sucesso, setSucesso] = useState(false)
   const [hora, setHora] = useState('')
-  const nome = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
 
   useEffect(() => {
     if (!localStorage.getItem('token')) { navigate('/login'); return }
@@ -35,7 +37,9 @@ export function CheckIn() {
       await new Promise(r => setTimeout(r, 800))
       const agora = new Date()
       const postoObj = POSTOS.find(p => p.id === Number(posto))
-      const registro = { id: Date.now(), tipo: 'checkin', usuario: nome, posto: postoObj.nome, postoLocal: postoObj.local, foto, timestamp: agora.toISOString() }
+      if (!postoObj) return
+      const usuario = nomeRegistro.trim() || nomePadrao
+      const registro = { id: Date.now(), tipo: 'checkin', usuario, loginUsuario: nomePadrao, postoId: postoObj.id, posto: postoObj.nome, postoLocal: postoObj.local, foto, timestamp: agora.toISOString() }
       const existentes = JSON.parse(localStorage.getItem('registros') || '[]')
       localStorage.setItem('registros', JSON.stringify([registro, ...existentes]))
       setSucesso(true)
@@ -52,7 +56,7 @@ export function CheckIn() {
       <div className="sucesso-icon">✓</div>
       <h2 className="sucesso-h">CHECK-IN<br />REALIZADO</h2>
       <p className="sucesso-hora">{hora}</p>
-      <p className="sucesso-sub">{POSTOS.find(p => p.id === Number(posto))?.nome} · {POSTOS.find(p => p.id === Number(posto))?.local}</p>
+      <p className="sucesso-sub">{formatPosto(posto)}</p>
     </div>
   )
 
@@ -69,10 +73,21 @@ export function CheckIn() {
         <div className="gold-line" />
 
         <div style={s.field}>
+          <label style={s.label}>Nome do usuário (opcional)</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Usar nome do login"
+            value={nomeRegistro}
+            onChange={e => setNomeRegistro(e.target.value)}
+          />
+        </div>
+
+        <div style={s.field}>
           <label style={s.label}>Posto de serviço</label>
           <select className="select" value={posto} onChange={e => setPosto(e.target.value)}>
             <option value="">Selecione o posto...</option>
-            {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome} — {p.local}</option>)}
+            {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
         </div>
 

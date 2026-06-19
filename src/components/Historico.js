@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { POSTOS, formatPosto, getRegistroPostoId, sortRegistrosPorPosto } from '../postos'
 import '../global.css'
 
 export function Historico() {
@@ -17,11 +18,10 @@ export function Historico() {
 
   const filtrados = registros.filter(r => {
     if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return false
-    if (filtroPosto !== 'todos' && r.posto !== filtroPosto) return false
+    if (filtroPosto !== 'todos' && String(getRegistroPostoId(r)) !== filtroPosto) return false
     return true
   })
-
-  const postosUsados = [...new Set(registros.map(r => r.posto))].filter(Boolean)
+  const filtradosOrdenados = sortRegistrosPorPosto(filtrados)
 
   return (
     <div className="page">
@@ -31,7 +31,7 @@ export function Historico() {
             <div style={s.modalHeader}>
               <div>
                 <p style={s.modalNome}>{fotoAberta.usuario}</p>
-                <p style={s.modalInfo}>{fotoAberta.posto} · {new Date(fotoAberta.timestamp).toLocaleString('pt-BR')}</p>
+                <p style={s.modalInfo}>{formatPosto(fotoAberta.postoId || fotoAberta.posto)} · {new Date(fotoAberta.timestamp).toLocaleString('pt-BR')}</p>
               </div>
               <button style={s.modalClose} onClick={() => setFotoAberta(null)}>✕</button>
             </div>
@@ -69,7 +69,7 @@ export function Historico() {
             <label style={s.label}>Posto</label>
             <select className="select" style={{ fontSize: '13px', padding: '8px 12px' }} value={filtroPosto} onChange={e => setFiltroPosto(e.target.value)}>
               <option value="todos">Todos</option>
-              {postosUsados.map(p => <option key={p} value={p}>{p}</option>)}
+              {POSTOS.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
             </select>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function Historico() {
           ? <div style={s.vazio}><p>Nenhum registro encontrado.</p></div>
           : (
             <div style={s.grid}>
-              {filtrados.map(r => (
+              {filtradosOrdenados.map(r => (
                 <div key={r.id} className="card" style={s.card} onClick={() => setFotoAberta(r)}>
                   <div style={s.cardFoto}>
                     <img src={r.foto} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -90,7 +90,7 @@ export function Historico() {
                   </div>
                   <div style={s.cardInfo}>
                     <p style={s.cardNome}>{r.usuario}</p>
-                    <p style={s.cardPosto}>{r.posto}</p>
+                    <p style={s.cardPosto}>{formatPosto(r.postoId || r.posto)}</p>
                     <p style={s.cardHora}>{new Date(r.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>

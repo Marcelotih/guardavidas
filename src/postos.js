@@ -1,23 +1,48 @@
-export const POSTOS = [
-  { id: 1,  nome: 'Posto 1',  local: 'Praia Central' },
-  { id: 2,  nome: 'Posto 2',  local: 'Praia do Rincão' },
-  { id: 3,  nome: 'Posto 3',  local: 'Praia de Balneário Rincão' },
-  { id: 4,  nome: 'Posto 4',  local: 'Praia Morro dos Conventos' },
-  { id: 5,  nome: 'Posto 5',  local: 'Praia de Araranguá' },
-  { id: 6,  nome: 'Posto 6',  local: 'Praia Barra Velha' },
-  { id: 7,  nome: 'Posto 7',  local: 'Praia do Camacho' },
-  { id: 8,  nome: 'Posto 8',  local: 'Praia da Joaquina' },
-  { id: 9,  nome: 'Posto 9',  local: 'Praia dos Ingleses' },
-  { id: 10, nome: 'Posto 10', local: 'Praia Canasvieiras' },
-  { id: 11, nome: 'Posto 11', local: 'Praia de Jurerê' },
-  { id: 12, nome: 'Posto 12', local: 'Praia da Daniela' },
-  { id: 13, nome: 'Posto 13', local: 'Praia do Forte' },
-  { id: 14, nome: 'Posto 14', local: 'Praia de Sambaqui' },
-  { id: 15, nome: 'Posto 15', local: 'Praia do Cacupé' },
-  { id: 16, nome: 'Posto 16', local: 'Praia de Santo Antônio' },
-  { id: 17, nome: 'Posto 17', local: 'Praia do Itacorubi' },
-  { id: 18, nome: 'Posto 18', local: 'Praia da Barra da Lagoa' },
-  { id: 19, nome: 'Posto 19', local: 'Praia do Campeche' },
-  { id: 20, nome: 'Posto 20', local: 'Praia Armação' },
-  { id: 21, nome: 'Posto 21', local: 'Praia Pântano do Sul' },
-]
+const padPosto = id => String(id).padStart(2, '0')
+
+export const POSTOS = Array.from({ length: 21 }, (_, index) => {
+  const id = index + 1
+  return {
+    id,
+    nome: `Posto ${padPosto(id)}`,
+    local: '',
+  }
+})
+
+export function getPostoId(valor) {
+  if (!valor) return null
+  if (typeof valor === 'number') return valor
+
+  const texto = String(valor)
+  const encontrado = POSTOS.find(p => p.nome === texto || String(p.id) === texto)
+  if (encontrado) return encontrado.id
+
+  const match = texto.match(/\d+/)
+  if (!match) return null
+
+  const id = Number(match[0])
+  return id >= 1 && id <= POSTOS.length ? id : null
+}
+
+export function getRegistroPostoId(registro) {
+  return getPostoId(registro?.postoId || registro?.posto)
+}
+
+export function formatPosto(valor) {
+  const id = getPostoId(valor)
+  return id ? `Posto ${padPosto(id)}` : valor || ''
+}
+
+export function sortRegistrosPorPosto(registros) {
+  return [...registros].sort((a, b) => {
+    const postoA = getRegistroPostoId(a) || Number.MAX_SAFE_INTEGER
+    const postoB = getRegistroPostoId(b) || Number.MAX_SAFE_INTEGER
+    if (postoA !== postoB) return postoA - postoB
+
+    const horaA = new Date(a.timestamp || 0).getTime()
+    const horaB = new Date(b.timestamp || 0).getTime()
+    if (horaA !== horaB) return horaA - horaB
+
+    return String(a.usuario || '').localeCompare(String(b.usuario || ''), 'pt-BR')
+  })
+}
