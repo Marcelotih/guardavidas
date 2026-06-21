@@ -1,6 +1,4 @@
 import { useNavigate } from 'react-router-dom'
-import selo100Anos from '../assets/cbmsc-100-anos.svg'
-import bombeirosLogo from '../assets/cbmsc-bombeiros.svg'
 import '../global.css'
 
 const MISSOES = [
@@ -27,7 +25,7 @@ export function Inicio() {
       <header style={s.appbar}>
         <div style={s.appbarInner}>
           <div style={s.appbarBrand}>
-            <img src={bombeirosLogo} alt="Corpo de Bombeiros Militar" style={s.appbarLogo} />
+    
             <div>
               <p style={s.appbarTitle}>CBMSC</p>
               <p style={s.appbarSub}>Corpo de Bombeiros Militar de SC</p>
@@ -77,7 +75,6 @@ export function Inicio() {
           </div>
         </div>
         <div style={s.heroSeal}>
-          <img src={selo100Anos} alt="CBMSC 100 anos" style={s.heroSealImg} />
         </div>
       </section>
 
@@ -139,7 +136,7 @@ export function Inicio() {
       <section style={s.sistema}>
         <div style={s.sistemaInner}>
           <div style={s.sistemaIcone}>⚑</div>
-          <h2 style={s.sistemaTitle}>Sistema de Controle de Guarda-Bidas</h2>
+          <h2 style={s.sistemaTitle}>Sistema de Controle de Guarda-Vidas</h2>
           <p style={s.sistemaSub}>
             Plataforma oficial para registro de presença, controle de jornada e gestão dos 21 postos de salva-vidas do litoral catarinense.
           </p>
