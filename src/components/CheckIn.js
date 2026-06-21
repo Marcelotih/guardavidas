@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { POSTOS, formatPosto } from '../postos'
+import { api } from '../api'
 import '../global.css'
 
 export function CheckIn() {
@@ -11,6 +12,7 @@ export function CheckIn() {
   const nomePadrao = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
   const [nomeRegistro, setNomeRegistro] = useState(nomePadrao === 'Salva-vidas' ? '' : nomePadrao)
   const [foto, setFoto] = useState(null)
+  const [fotoArquivo, setFotoArquivo] = useState(null)
   const [enviando, setEnviando] = useState(false)
   const [sucesso, setSucesso] = useState(false)
   const [hora, setHora] = useState('')
@@ -25,27 +27,29 @@ export function CheckIn() {
   const handleFoto = (e) => {
     const file = e.target.files[0]
     if (!file) return
+    setFotoArquivo(file)
     const reader = new FileReader()
     reader.onload = ev => setFoto(ev.target.result)
     reader.readAsDataURL(file)
   }
 
   const confirmar = async () => {
-    if (!posto || !foto) return
+    if (!posto || !fotoArquivo) return
     setEnviando(true)
     try {
-      await new Promise(r => setTimeout(r, 800))
-      const agora = new Date()
-      const postoObj = POSTOS.find(p => p.id === Number(posto))
-      if (!postoObj) return
-      const usuario = nomeRegistro.trim() || nomePadrao
-      const registro = { id: Date.now(), tipo: 'checkin', usuario, loginUsuario: nomePadrao, postoId: postoObj.id, posto: postoObj.nome, postoLocal: postoObj.local, foto, timestamp: agora.toISOString() }
-      const existentes = JSON.parse(localStorage.getItem('registros') || '[]')
-      localStorage.setItem('registros', JSON.stringify([registro, ...existentes]))
+      const formData = new FormData()
+      formData.append('postoId', Number(posto))
+      formData.append('foto', fotoArquivo)
+      if (nomeRegistro.trim()) {
+        formData.append('nome', nomeRegistro.trim())
+      }
+
+      await api.post('/check/in', formData)
+
       setSucesso(true)
       setTimeout(() => navigate('/dashboard'), 2500)
-    } catch {
-      alert('Erro ao registrar. Tente novamente.')
+    } catch (err) {
+      alert(err.message || 'Erro ao registrar. Tente novamente.')
     } finally {
       setEnviando(false)
     }

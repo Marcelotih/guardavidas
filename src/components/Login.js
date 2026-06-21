@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../api'
 import '../global.css'
 
 // Substitua pelas senhas reais quando tiver backend
@@ -19,23 +20,28 @@ export function Login() {
     if (!usuario.trim() || !senha.trim()) { setErro('Preencha todos os campos.'); return }
 
     setCarregando(true)
-    // Simula delay de autenticação — substitua pela API real
-    await new Promise(r => setTimeout(r, 600))
-
-    if (senha === SENHA_ADMIN) {
-      localStorage.setItem('tokenAdmin', `admin_${Date.now()}`)
-      localStorage.setItem('tipoUsuario', 'admin')
-      localStorage.setItem('nomeUsuario', usuario)
-      navigate('/admin')
-    } else if (senha === SENHA_SV) {
-      localStorage.setItem('token', `sv_${Date.now()}`)
-      localStorage.setItem('tipoUsuario', 'salvavidas')
-      localStorage.setItem('nomeUsuario', usuario)
-      navigate('/dashboard')
-    } else {
-      setErro('Usuário ou senha incorretos.')
+    try {
+      const response = await api.post('/auth/login', {
+        email: usuario.trim(),
+        senha: senha.trim()
+      })
+      const { token, tipo } = response
+      if (tipo === 'ADMIN') {
+        localStorage.setItem('tokenAdmin', token)
+        localStorage.setItem('tipoUsuario', 'admin')
+        localStorage.setItem('nomeUsuario', usuario)
+        navigate('/admin')
+      } else {
+        localStorage.setItem('token', token)
+        localStorage.setItem('tipoUsuario', 'salvavidas')
+        localStorage.setItem('nomeUsuario', usuario)
+        navigate('/dashboard')
+      }
+    } catch (err) {
+      setErro(err.message || 'Usuário ou senha incorretos.')
+    } finally {
+      setCarregando(false)
     }
-    setCarregando(false)
   }
 
   return (

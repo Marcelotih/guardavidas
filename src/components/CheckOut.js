@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { POSTOS, formatPosto, getRegistroPostoId } from '../postos'
+import { POSTOS, formatPosto } from '../postos'
+import { api } from '../api'
 import '../global.css'
 
 const relatorioInicial = {
@@ -17,6 +18,7 @@ export function CheckOut() {
   const fileRef = useRef(null)
   const [posto, setPosto] = useState(searchParams.get('posto') || '')
   const [foto, setFoto] = useState(null)
+  const [fotoArquivo, setFotoArquivo] = useState(null)
   const [relatorio, setRelatorio] = useState(relatorioInicial)
   const [enviando, setEnviando] = useState(false)
   const [sucesso, setSucesso] = useState(false)
@@ -26,11 +28,14 @@ export function CheckOut() {
   useEffect(() => {
     if (!localStorage.getItem('token')) { navigate('/login'); return }
     if (!searchParams.get('posto')) {
-      const registros = JSON.parse(localStorage.getItem('registros') || '[]')
-      const hoje = new Date().toDateString()
-      const checkinHoje = registros.find(r => r.tipo === 'checkin' && (r.loginUsuario === nome || r.usuario === nome) && new Date(r.timestamp).toDateString() === hoje)
-      const postoId = getRegistroPostoId(checkinHoje)
-      if (postoId) setPosto(String(postoId))
+      api.get('/check/registros/hoje')
+        .then(data => {
+          const checkinHoje = data.find(r => r.tipo === 'checkin')
+          if (checkinHoje && checkinHoje.postoId) {
+            setPosto(String(checkinHoje.postoId))
+          }
+        })
+        .catch(err => console.error('Erro ao carregar check-in de hoje:', err))
     }
     const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
     setHora(new Date().toLocaleTimeString('pt-BR'))
@@ -60,50 +65,31 @@ export function CheckOut() {
   const handleFoto = (e) => {
     const file = e.target.files[0]
     if (!file) return
+    setFotoArquivo(file)
     const reader = new FileReader()
     reader.onload = ev => setFoto(ev.target.result)
     reader.readAsDataURL(file)
   }
 
   const confirmar = async () => {
-    if (!posto || !foto) return
+    if (!posto || !fotoArquivo) return
     setEnviando(true)
     try {
-      await new Promise(r => setTimeout(r, 800))
-      const agora = new Date()
-      const postoObj = POSTOS.find(p => p.id === Number(posto))
-      if (!postoObj) return
-      const registro = {
-        id: Date.now(),
-        tipo: 'checkout',
-        usuario: nome,
-        loginUsuario: nome,
-        postoId: postoObj.id,
-        posto: postoObj.nome,
-        postoLocal: postoObj.local,
-        foto,
-        relatorio: {
-          matutino: {
-            prevencoes: numero(relatorio.matutino.prevencoes),
-            incidentes: numero(relatorio.matutino.incidentes),
-            total: totalMatutino,
-          },
-          vespertino: {
-            prevencoes: numero(relatorio.vespertino.prevencoes),
-            incidentes: numero(relatorio.vespertino.incidentes),
-            total: totalVespertino,
-          },
-          lesoesAguaViva: numero(relatorio.lesoesAguaViva),
-          totalGeral,
-        },
-        timestamp: agora.toISOString(),
-      }
-      const existentes = JSON.parse(localStorage.getItem('registros') || '[]')
-      localStorage.setItem('registros', JSON.stringify([registro, ...existentes]))
+      const formData = new FormData()
+      formData.append('postoId', Number(posto))
+      formData.append('foto', fotoArquivo)
+      formData.append('matutinoPrevencoes', numero(relatorio.matutino.prevencoes))
+      formData.append('matutinoIncidentes', numero(relatorio.matutino.incidentes))
+      formData.append('vespertinoPrevencoes', numero(relatorio.vespertino.prevencoes))
+      formData.append('vespertinoIncidentes', numero(relatorio.vespertino.incidentes))
+      formData.append('lesoesAguaViva', numero(relatorio.lesoesAguaViva))
+
+      await api.post('/check/out', formData)
+
       setSucesso(true)
       setTimeout(() => navigate('/dashboard'), 2500)
-    } catch {
-      alert('Erro ao registrar. Tente novamente.')
+    } catch (err) {
+      alert(err.message || 'Erro ao registrar. Tente novamente.')
     } finally {
       setEnviando(false)
     }

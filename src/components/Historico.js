@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { POSTOS, formatPosto, getRegistroPostoId, sortRegistrosPorPosto } from '../postos'
+import { api, API_URL } from '../api'
 import '../global.css'
 
 export function Historico() {
@@ -13,7 +14,9 @@ export function Historico() {
   useEffect(() => {
     const token = localStorage.getItem('token') || localStorage.getItem('tokenAdmin')
     if (!token) { navigate('/login'); return }
-    setRegistros(JSON.parse(localStorage.getItem('registros') || '[]'))
+    api.get('/check/registros')
+      .then(data => setRegistros(data || []))
+      .catch(err => console.error('Erro ao carregar histórico:', err))
   }, [navigate])
 
   const filtrados = registros.filter(r => {
@@ -35,7 +38,7 @@ export function Historico() {
               </div>
               <button style={s.modalClose} onClick={() => setFotoAberta(null)}>✕</button>
             </div>
-            <img src={fotoAberta.foto} alt={fotoAberta.usuario} style={{ width: '100%', display: 'block' }} />
+            <img src={fotoAberta.fotoUrl ? `${API_URL}${fotoAberta.fotoUrl}` : fotoAberta.foto} alt={fotoAberta.usuario} style={{ width: '100%', display: 'block' }} />
             <div style={s.modalFooter}>
               <span className={`badge ${fotoAberta.tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`}>
                 {fotoAberta.tipo === 'checkin' ? 'Entrada' : 'Saída'}
@@ -83,7 +86,7 @@ export function Historico() {
               {filtradosOrdenados.map(r => (
                 <div key={r.id} className="card" style={s.card} onClick={() => setFotoAberta(r)}>
                   <div style={s.cardFoto}>
-                    <img src={r.foto} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={r.fotoUrl ? `${API_URL}${r.fotoUrl}` : r.foto} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     <span className={`badge ${r.tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`} style={s.cardBadge}>
                       {r.tipo === 'checkin' ? 'ENT' : 'SAÍ'}
                     </span>

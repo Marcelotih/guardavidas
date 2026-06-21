@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { POSTOS, formatPosto, getRegistroPostoId, sortRegistrosPorPosto } from '../postos'
+import { api, API_URL } from '../api'
 import '../global.css'
 
 function getRelatorioCheckout(registro) {
@@ -173,6 +174,7 @@ async function exportarRelatorioPDF(registros, filtroLabel) {
 
 function ModalFotoAdmin({ foto, usuario, posto, timestamp, tipo, onFechar }) {
   if (!foto) return null
+  const src = foto.startsWith('/arquivos/') ? `${API_URL}${foto}` : foto
   return (
     <div style={ms.overlay} onClick={onFechar}>
       <div style={ms.box} onClick={e => e.stopPropagation()}>
@@ -188,7 +190,7 @@ function ModalFotoAdmin({ foto, usuario, posto, timestamp, tipo, onFechar }) {
             <button style={ms.close} onClick={onFechar}>✕</button>
           </div>
         </div>
-        <img src={foto} alt={usuario} style={{ width: '100%', display: 'block', maxHeight: '70vh', objectFit: 'contain', background: '#060d18' }} />
+        <img src={src} alt={usuario} style={{ width: '100%', display: 'block', maxHeight: '70vh', objectFit: 'contain', background: '#060d18' }} />
       </div>
     </div>
   )
@@ -208,12 +210,13 @@ function RegistroRow({ r }) {
   const [fotoAberta, setFotoAberta] = useState(false)
   const relatorio = getRelatorioCheckout(r)
   const temRelatorio = r.tipo === 'checkout' && (relatorio || r.relato)
+  const src = r.fotoUrl ? `${API_URL}${r.fotoUrl}` : r.foto
 
   return (
     <>
       {fotoAberta && (
         <ModalFotoAdmin
-          foto={r.foto}
+          foto={r.fotoUrl || r.foto}
           usuario={r.usuario}
           posto={r.postoId || r.posto}
           timestamp={r.timestamp}
@@ -221,58 +224,58 @@ function RegistroRow({ r }) {
           onFechar={() => setFotoAberta(false)}
         />
       )}
-    <div style={s.row}>
-      <div style={{ ...s.rowFoto, cursor: 'pointer', position: 'relative' }} onClick={() => setFotoAberta(true)} title="Clique para ampliar">
-        <img src={r.foto} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        <div style={s.fotoOverlay}>🔍</div>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-          <span className={`badge ${r.tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`}>
-            {r.tipo === 'checkin' ? 'ENT' : 'SAÍ'}
-          </span>
-          <span style={s.rowNome}>{r.usuario}</span>
-          {temRelatorio && (
-            <button onClick={() => setAberto(!aberto)} style={s.btnRelato}>
-              {aberto ? '▲ relatório' : '▼ relatório'}
-            </button>
-          )}
+      <div style={s.row}>
+        <div style={{ ...s.rowFoto, cursor: 'pointer', position: 'relative' }} onClick={() => setFotoAberta(true)} title="Clique para ampliar">
+          <img src={src} alt={r.usuario} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <div style={s.fotoOverlay}>🔍</div>
         </div>
-        <p style={s.rowPosto}>{formatPosto(r.postoId || r.posto)}</p>
-        <p style={s.rowHora}>{new Date(r.timestamp).toLocaleString('pt-BR')}</p>
-        {temRelatorio && aberto && (
-          <div style={s.relatoBox}>
-            <p style={s.relatoLabel}>{relatorio ? 'Relatório do check-out' : 'Relato do turno'}</p>
-            {relatorio ? (
-              <div style={s.relatorioGrid}>
-                <div style={s.relatorioItem}>
-                  <span style={s.relatorioNome}>Matutino</span>
-                  <span style={s.relatorioValor}>Prev. {relatorio.matutino.prevencoes} · Inc. {relatorio.matutino.incidentes}</span>
-                  <strong style={s.relatorioTotal}>{relatorio.matutino.total}</strong>
-                </div>
-                <div style={s.relatorioItem}>
-                  <span style={s.relatorioNome}>Vespertino</span>
-                  <span style={s.relatorioValor}>Prev. {relatorio.vespertino.prevencoes} · Inc. {relatorio.vespertino.incidentes}</span>
-                  <strong style={s.relatorioTotal}>{relatorio.vespertino.total}</strong>
-                </div>
-                <div style={s.relatorioItem}>
-                  <span style={s.relatorioNome}>Água-viva</span>
-                  <span style={s.relatorioValor}>Lesões registradas</span>
-                  <strong style={s.relatorioTotal}>{relatorio.lesoesAguaViva}</strong>
-                </div>
-                <div style={{ ...s.relatorioItem, borderColor: '#c9a84c' }}>
-                  <span style={s.relatorioNome}>Total geral</span>
-                  <span style={s.relatorioValor}>Ocorrências do posto</span>
-                  <strong style={{ ...s.relatorioTotal, color: '#c9a84c' }}>{relatorio.totalGeral}</strong>
-                </div>
-              </div>
-            ) : (
-              <p style={s.relatoTexto}>{r.relato}</p>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <span className={`badge ${r.tipo === 'checkin' ? 'badge-green' : 'badge-gold'}`}>
+              {r.tipo === 'checkin' ? 'ENT' : 'SAÍ'}
+            </span>
+            <span style={s.rowNome}>{r.usuario}</span>
+            {temRelatorio && (
+              <button onClick={() => setAberto(!aberto)} style={s.btnRelato}>
+                {aberto ? '▲ relatório' : '▼ relatório'}
+              </button>
             )}
           </div>
-        )}
+          <p style={s.rowPosto}>{formatPosto(r.postoId || r.posto)}</p>
+          <p style={s.rowHora}>{new Date(r.timestamp).toLocaleString('pt-BR')}</p>
+          {temRelatorio && aberto && (
+            <div style={s.relatoBox}>
+              <p style={s.relatoLabel}>{relatorio ? 'Relatório do check-out' : 'Relato do turno'}</p>
+              {relatorio ? (
+                <div style={s.relatorioGrid}>
+                  <div style={s.relatorioItem}>
+                    <span style={s.relatorioNome}>Matutino</span>
+                    <span style={s.relatorioValor}>Prev. {relatorio.matutino.prevencoes} · Inc. {relatorio.matutino.incidentes}</span>
+                    <strong style={s.relatorioTotal}>{relatorio.matutino.total}</strong>
+                  </div>
+                  <div style={s.relatorioItem}>
+                    <span style={s.relatorioNome}>Vespertino</span>
+                    <span style={s.relatorioValor}>Prev. {relatorio.vespertino.prevencoes} · Inc. {relatorio.vespertino.incidentes}</span>
+                    <strong style={s.relatorioTotal}>{relatorio.vespertino.total}</strong>
+                  </div>
+                  <div style={s.relatorioItem}>
+                    <span style={s.relatorioNome}>Água-viva</span>
+                    <span style={s.relatorioValor}>Lesões registradas</span>
+                    <strong style={s.relatorioTotal}>{relatorio.lesoesAguaViva}</strong>
+                  </div>
+                  <div style={{ ...s.relatorioItem, borderColor: '#c9a84c' }}>
+                    <span style={s.relatorioNome}>Total geral</span>
+                    <span style={s.relatorioValor}>Ocorrências do posto</span>
+                    <strong style={{ ...s.relatorioTotal, color: '#c9a84c' }}>{relatorio.totalGeral}</strong>
+                  </div>
+                </div>
+              ) : (
+                <p style={s.relatoTexto}>{r.relato}</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
     </>
   )
 }
@@ -293,35 +296,52 @@ export function AdminDashboard() {
     navigate('/login')
   }, [navigate])
 
+  const carregarRegistros = useCallback(() => {
+    let url = '/check/admin/registros'
+    const params = []
+    if (filtroPosto && filtroPosto !== 'todos') {
+      params.push(`postoId=${filtroPosto}`)
+    }
+    if (filtroData) {
+      params.push(`data=${filtroData}`)
+    }
+    if (params.length > 0) {
+      url += `?${params.join('&')}`
+    }
+
+    api.get(url)
+      .then(data => setRegistros(data || []))
+      .catch(err => {
+        console.error('Erro ao carregar registros do admin:', err)
+        if (err.message && err.message.includes('401')) {
+          logout()
+        }
+      })
+  }, [filtroPosto, filtroData, logout])
+
   useEffect(() => {
     if (!localStorage.getItem('tokenAdmin')) { navigate('/login'); return }
-    setRegistros(JSON.parse(localStorage.getItem('registros') || '[]'))
+    carregarRegistros()
     const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
     setHora(new Date().toLocaleTimeString('pt-BR'))
     return () => clearInterval(tick)
-  }, [navigate])
-
-  const filtrados = registros.filter(r => {
-    if (filtroPosto !== 'todos' && String(getRegistroPostoId(r)) !== filtroPosto) return false
-    if (filtroData) {
-      const dataR = new Date(r.timestamp).toISOString().slice(0, 10)
-      if (dataR !== filtroData) return false
-    }
-    return true
-  })
-  const filtradosOrdenados = sortRegistrosPorPosto(filtrados)
+  }, [navigate, carregarRegistros])
 
   const apagarTudo = () => {
-    localStorage.removeItem('registros')
-    setRegistros([])
-    setConfirmaApagar(false)
+    api.delete('/check/admin/registros')
+      .then(() => {
+        setRegistros([])
+        setConfirmaApagar(false)
+      })
+      .catch(err => {
+        alert(err.message || 'Erro ao apagar histórico.')
+      })
   }
 
   const handleExportarPDF = async () => {
     setGerando(true)
     try {
-      const alvo = filtrados.length < registros.length ? filtrados : registros
-      const totalRelatoriosAlvo = alvo.filter(temRelatorioCheckout).length
+      const totalRelatoriosAlvo = registros.filter(temRelatorioCheckout).length
       if (totalRelatoriosAlvo === 0) {
         alert('Nenhum relatório encontrado para exportar.')
         return
@@ -329,7 +349,7 @@ export function AdminDashboard() {
       let label = ''
       if (filtroPosto !== 'todos') label += `Posto: ${formatPosto(filtroPosto)}`
       if (filtroData) label += `${label ? ' · ' : ''}Data: ${new Date(filtroData + 'T12:00:00').toLocaleDateString('pt-BR')}`
-      await exportarRelatorioPDF(alvo, label)
+      await exportarRelatorioPDF(registros, label)
     } finally {
       setGerando(false)
     }
@@ -344,7 +364,8 @@ export function AdminDashboard() {
     return { ...posto, checkins, checkouts }
   }).filter(p => p.checkins > 0 || p.checkouts > 0)
 
-  const totalRelatorios = filtrados.filter(temRelatorioCheckout).length
+  const totalRelatorios = registros.filter(temRelatorioCheckout).length
+  const registrosOrdenados = sortRegistrosPorPosto(registros)
 
   return (
     <div className="page">
@@ -422,13 +443,13 @@ export function AdminDashboard() {
             value={filtroData} onChange={e => setFiltroData(e.target.value)} />
         </div>
 
-        <p style={s.contagem}>{filtrados.length} registro{filtrados.length !== 1 ? 's' : ''}{totalRelatorios > 0 ? ` · ${totalRelatorios} relatório${totalRelatorios !== 1 ? 's' : ''}` : ''}</p>
+        <p style={s.contagem}>{registros.length} registro{registros.length !== 1 ? 's' : ''}{totalRelatorios > 0 ? ` · ${totalRelatorios} relatório${totalRelatorios !== 1 ? 's' : ''}` : ''}</p>
 
-        {filtrados.length === 0
+        {registros.length === 0
           ? <div style={s.vazio}><p>Nenhum registro.</p></div>
           : (
             <div style={s.lista}>
-              {filtradosOrdenados.map(r => <RegistroRow key={r.id} r={r} />)}
+              {registrosOrdenados.map(r => <RegistroRow key={r.id} r={r} />)}
             </div>
           )
         }
@@ -450,7 +471,7 @@ const s = {
   contagem: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '12px', letterSpacing: '1px', color: '#6a8aaa', marginBottom: '12px' },
   lista: { display: 'flex', flexDirection: 'column', gap: '8px' },
   row: { background: '#112a4d', border: '1px solid #1a3358', borderRadius: '8px', display: 'flex', gap: '12px', padding: '12px', alignItems: 'flex-start' },
-  rowFoto: { width: '52px', height: '52px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, background: '#060a08' },
+  rowFoto: { width: '52px', height: '52px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, position: 'relative', background: '#060a08' },
   fotoOverlay: { position: 'absolute', inset: 0, background: 'rgba(13,35,64,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', opacity: 0, transition: 'opacity .15s' },
   rowNome: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '15px', fontWeight: 600, color: '#e8eef5' },
   rowPosto: { fontFamily: "'Barlow', sans-serif", fontSize: '12px', color: '#6a8aaa', marginBottom: '2px' },

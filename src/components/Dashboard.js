@@ -1,13 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { POSTOS, formatPosto, getRegistroPostoId } from '../postos'
+import { POSTOS, formatPosto } from '../postos'
+import { api } from '../api'
 import '../global.css'
 
-function HistoricoRegistros() {
-  const historico = JSON.parse(localStorage.getItem('registros') || '[]')
-  const nome = localStorage.getItem('nomeUsuario') || ''
-  const meus = historico.filter(r => r.loginUsuario === nome || r.usuario === nome).slice(0, 5)
-  if (meus.length === 0) return null
+function HistoricoRegistros({ meus }) {
+  if (!meus || meus.length === 0) return null
   return (
     <div style={{ padding: '0 20px' }}>
       <p className="sec-label">Últimos registros</p>
@@ -32,6 +30,7 @@ export function Dashboard() {
   const navigate = useNavigate()
   const [hora, setHora] = useState('')
   const [postoSelecionado, setPostoSelecionado] = useState('')
+  const [registros, setRegistros] = useState([])
   const nome = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
 
   const logout = useCallback(() => {
@@ -41,19 +40,32 @@ export function Dashboard() {
     navigate('/login')
   }, [navigate])
 
+  const carregarRegistros = useCallback(() => {
+    api.get('/check/registros')
+      .then(data => {
+        setRegistros(data || [])
+      })
+      .catch(err => {
+        console.error('Erro ao carregar registros:', err)
+        if (err.message && err.message.includes('401')) {
+          logout()
+        }
+      })
+  }, [logout])
+
   useEffect(() => {
     if (!localStorage.getItem('token')) { navigate('/login'); return }
+    carregarRegistros()
     const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
     setHora(new Date().toLocaleTimeString('pt-BR'))
     return () => clearInterval(tick)
-  }, [navigate])
+  }, [navigate, carregarRegistros])
 
-  const registros = JSON.parse(localStorage.getItem('registros') || '[]')
   const hoje = new Date().toDateString()
-  const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje && (r.loginUsuario === nome || r.usuario === nome))
+  const regsHoje = registros.filter(r => new Date(r.timestamp).toDateString() === hoje)
   const checkinHoje = regsHoje.find(r => r.tipo === 'checkin')
   const checkoutHoje = regsHoje.find(r => r.tipo === 'checkout')
-  const postoCheckinHoje = getRegistroPostoId(checkinHoje)
+  const postoCheckinHoje = checkinHoje ? checkinHoje.postoId : null
 
   useEffect(() => {
     if (!postoSelecionado && postoCheckinHoje) {
@@ -147,7 +159,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <HistoricoRegistros />
+      <HistoricoRegistros meus={registros.slice(0, 5)} />
     </div>
   )
 }
