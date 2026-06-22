@@ -32,144 +32,157 @@ function getRelatorioCheckout(registro) {
 
 const temRelatorioCheckout = registro => registro.tipo === 'checkout' && (getRelatorioCheckout(registro) || registro.relato)
 
-// Gera PDF dos relatórios de check-out usando jsPDF via CDN
-async function exportarRelatorioPDF(registros, filtroLabel) {
-  // Carrega jsPDF dinamicamente
-  if (!window.jspdf) {
+// Gera Excel dos relatórios de check-out usando SheetJS via CDN
+async function exportarRelatorioExcel(registros, filtroLabel) {
+  // Carrega xlsx dinamicamente
+  if (!window.XLSX) {
     await new Promise((resolve, reject) => {
       const script = document.createElement('script')
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
       script.onload = resolve
       script.onerror = reject
       document.head.appendChild(script)
     })
   }
 
-  const { jsPDF } = window.jspdf
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-
+  const XLSX = window.XLSX
   const relatorios = sortRegistrosPorPosto(registros.filter(temRelatorioCheckout))
-  const dataGeracao = new Date().toLocaleString('pt-BR')
-  const W = 210
-  const margin = 18
-  const maxW = W - margin * 2
 
-  // ── Cabeçalho ──
-  doc.setFillColor(17, 26, 21)
-  doc.rect(0, 0, W, 36, 'F')
-  doc.setTextColor(57, 224, 122)
-  doc.setFontSize(22)
-  doc.setFont('helvetica', 'bold')
-  doc.text('SALVA-VIDAS SC', margin, 16)
-  doc.setFontSize(9)
-  doc.setTextColor(74, 102, 80)
-  doc.setFont('helvetica', 'normal')
-  doc.text('Relatório de Check-out por Posto', margin, 23)
-  doc.text(`Gerado em: ${dataGeracao}`, margin, 29)
-  if (filtroLabel) doc.text(`Filtro: ${filtroLabel}`, margin, 34)
+  if (relatorios.length === 0) {
+    throw new Error('Nenhum relatório encontrado para exportar.')
+  }
 
-  let y = 46
+  // Dados para a planilha
+  const dados = relatorios.map((r, index) => {
+    const data = new Date(r.timestamp)
+    const relatorio = getRelatorioCheckout(r)
+    
+    // Para relatos simples (sem estrutura de relatório)
+    if (!relatorio) {
+      return {
+        'Nº': index + 1,
+        'Usuário': r.usuario,
+        'Posto': formatPosto(r.postoId || r.posto),
+        'Data': data.toLocaleDateString('pt-BR'),
+        'Hora': data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        'Tipo': 'Check-out',
+        'Prevenções - Matutino': '-',
+        'Incidentes - Matutino': '-',
+        'Total - Matutino': '-',
+        'Prevenções - Vespertino': '-',
+        'Incidentes - Vespertino': '-',
+        'Total - Vespertino': '-',
+        'Lesões Água-viva': '-',
+        'Total Geral': '-',
+        'Relato': r.relato || '',
+      }
+    }
 
-  const checkPage = (needed = 10) => {
-    if (y + needed > 280) {
-      doc.addPage()
-      // mini header na nova página
-      doc.setFillColor(17, 26, 21)
-      doc.rect(0, 0, W, 14, 'F')
-      doc.setFontSize(8)
-      doc.setTextColor(74, 102, 80)
-      doc.setFont('helvetica', 'normal')
-      doc.text('SALVA-VIDAS SC — Relatório de Check-out', margin, 9)
-      y = 22
+    return {
+      'Nº': index + 1,
+      'Usuário': r.usuario,
+      'Posto': formatPosto(r.postoId || r.posto),
+      'Data': data.toLocaleDateString('pt-BR'),
+      'Hora': data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      'Tipo': 'Check-out',
+      'Prevenções - Matutino': relatorio.matutino.prevencoes,
+      'Incidentes - Matutino': relatorio.matutino.incidentes,
+      'Total - Matutino': relatorio.matutino.total,
+      'Prevenções - Vespertino': relatorio.vespertino.prevencoes,
+      'Incidentes - Vespertino': relatorio.vespertino.incidentes,
+      'Total - Vespertino': relatorio.vespertino.total,
+      'Lesões Água-viva': relatorio.lesoesAguaViva,
+      'Total Geral': relatorio.totalGeral,
+      'Relato': '',
+    }
+  })
+
+  // Adiciona linha de resumo
+  const totais = {
+    'Nº': 'TOTAIS',
+    'Usuário': '',
+    'Posto': '',
+    'Data': '',
+    'Hora': '',
+    'Tipo': '',
+    'Prevenções - Matutino': dados.reduce((sum, d) => sum + (Number(d['Prevenções - Matutino']) || 0), 0),
+    'Incidentes - Matutino': dados.reduce((sum, d) => sum + (Number(d['Incidentes - Matutino']) || 0), 0),
+    'Total - Matutino': dados.reduce((sum, d) => sum + (Number(d['Total - Matutino']) || 0), 0),
+    'Prevenções - Vespertino': dados.reduce((sum, d) => sum + (Number(d['Prevenções - Vespertino']) || 0), 0),
+    'Incidentes - Vespertino': dados.reduce((sum, d) => sum + (Number(d['Incidentes - Vespertino']) || 0), 0),
+    'Total - Vespertino': dados.reduce((sum, d) => sum + (Number(d['Total - Vespertino']) || 0), 0),
+    'Lesões Água-viva': dados.reduce((sum, d) => sum + (Number(d['Lesões Água-viva']) || 0), 0),
+    'Total Geral': dados.reduce((sum, d) => sum + (Number(d['Total Geral']) || 0), 0),
+    'Relato': '',
+  }
+  dados.push(totais)
+
+  // Cria workbook
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(dados)
+
+  // Define largura das colunas
+  ws['!cols'] = [
+    { wch: 6 },  // Nº
+    { wch: 20 }, // Usuário
+    { wch: 25 }, // Posto
+    { wch: 12 }, // Data
+    { wch: 10 }, // Hora
+    { wch: 12 }, // Tipo
+    { wch: 18 }, // Prevenções - Matutino
+    { wch: 18 }, // Incidentes - Matutino
+    { wch: 15 }, // Total - Matutino
+    { wch: 20 }, // Prevenções - Vespertino
+    { wch: 20 }, // Incidentes - Vespertino
+    { wch: 17 }, // Total - Vespertino
+    { wch: 18 }, // Lesões Água-viva
+    { wch: 15 }, // Total Geral
+    { wch: 30 }, // Relato
+  ]
+
+  // Adiciona metadados
+  const info = [
+    ['RELATÓRIO DE CHECK-OUT'],
+    ['SALVA-VIDAS SC'],
+    [`Gerado em: ${new Date().toLocaleString('pt-BR')}`],
+    [`Filtro: ${filtroLabel || 'Todos os postos'}`],
+    [''],
+  ]
+  
+  // Insere metadados no topo
+  const wsData = XLSX.utils.sheet_to_json(ws, { header: 1 })
+  const finalData = [...info, ...wsData]
+  const wsFinal = XLSX.utils.aoa_to_sheet(finalData)
+  
+  // Mescla células do cabeçalho
+  wsFinal['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 14 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 14 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 14 } },
+  ]
+
+  // Aplica estilos básicos (SheetJS não suporta estilos avançados sem plugin)
+  // Mas podemos aplicar formatação de números
+  const range = XLSX.utils.decode_range(wsFinal['!ref'])
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C })
+      if (!wsFinal[addr]) continue
+      if (R >= 5 && C >= 6 && C <= 13) { // Colunas numéricas
+        if (typeof wsFinal[addr].v === 'number') {
+          wsFinal[addr].t = 'n'
+        }
+      }
     }
   }
 
-  if (relatorios.length === 0) {
-    doc.setFontSize(12)
-    doc.setTextColor(74, 102, 80)
-    doc.setFont('helvetica', 'italic')
-    doc.text('Nenhum relatório encontrado para os filtros selecionados.', margin, y)
-  } else {
-    relatorios.forEach((r, i) => {
-      const data = new Date(r.timestamp)
-      const dataStr = data.toLocaleDateString('pt-BR')
-      const horaStr = data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  // Adiciona a planilha ao workbook
+  XLSX.utils.book_append_sheet(wb, wsFinal, 'Relatório Check-out')
 
-      checkPage(40)
-
-      // Separador entre relatórios
-      if (i > 0) {
-        doc.setDrawColor(30, 48, 32)
-        doc.line(margin, y - 3, W - margin, y - 3)
-      }
-
-      // Badge tipo
-      doc.setFillColor(46, 31, 0)
-      doc.roundedRect(margin, y, 18, 6, 1, 1, 'F')
-      doc.setFontSize(7)
-      doc.setTextColor(245, 166, 35)
-      doc.setFont('helvetica', 'bold')
-      doc.text('SAÍDA', margin + 2, y + 4.2)
-
-      // Nome e posto
-      doc.setFontSize(12)
-      doc.setTextColor(212, 232, 216)
-      doc.setFont('helvetica', 'bold')
-      doc.text(r.usuario, margin + 22, y + 4.5)
-
-      // Data/hora e posto na linha seguinte
-      y += 9
-      doc.setFontSize(9)
-      doc.setTextColor(74, 102, 80)
-      doc.setFont('helvetica', 'normal')
-      doc.text(`${formatPosto(r.postoId || r.posto)}  ·  ${dataStr} às ${horaStr}`, margin, y)
-
-      // Caixa do relatório
-      y += 5
-      const relatorio = getRelatorioCheckout(r)
-      const linhasRelatorio = relatorio
-        ? [
-            `Matutino - Prevenções: ${relatorio.matutino.prevencoes} | Incidentes: ${relatorio.matutino.incidentes} | Total: ${relatorio.matutino.total}`,
-            `Vespertino - Prevenções: ${relatorio.vespertino.prevencoes} | Incidentes: ${relatorio.vespertino.incidentes} | Total: ${relatorio.vespertino.total}`,
-            `Lesões por água-viva: ${relatorio.lesoesAguaViva}`,
-            `Total geral: ${relatorio.totalGeral}`,
-          ]
-        : doc.splitTextToSize(r.relato, maxW - 8)
-      const alturaRelatorio = linhasRelatorio.length * 5 + 10
-
-      checkPage(alturaRelatorio + 4)
-
-      doc.setFillColor(10, 15, 10)
-      doc.setDrawColor(30, 48, 32)
-      doc.roundedRect(margin, y, maxW, alturaRelatorio, 2, 2, 'FD')
-
-      doc.setFontSize(7)
-      doc.setTextColor(74, 102, 80)
-      doc.setFont('helvetica', 'bold')
-      doc.text(relatorio ? 'RELATÓRIO DO CHECK-OUT' : 'RELATO DO TURNO', margin + 4, y + 5)
-
-      doc.setFontSize(9.5)
-      doc.setTextColor(212, 232, 216)
-      doc.setFont('helvetica', 'normal')
-      doc.text(linhasRelatorio, margin + 4, y + 11)
-
-      y += alturaRelatorio + 10
-    })
-  }
-
-  // Rodapé na última página
-  const totalPages = doc.internal.getNumberOfPages()
-  for (let p = 1; p <= totalPages; p++) {
-    doc.setPage(p)
-    doc.setFontSize(7)
-    doc.setTextColor(74, 102, 80)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Página ${p} de ${totalPages}`, W - margin, 290, { align: 'right' })
-    doc.text('Documento confidencial — acesso restrito ao Tenente/Admin', margin, 290)
-  }
-
-  const fileName = `relatorio_checkout_${new Date().toISOString().slice(0, 10)}.pdf`
-  doc.save(fileName)
+  // Gera arquivo
+  const fileName = `relatorio_checkout_${new Date().toISOString().slice(0, 10)}.xlsx`
+  XLSX.writeFile(wb, fileName)
 }
 
 function ModalFotoAdmin({ foto, usuario, posto, timestamp, tipo, onFechar }) {
@@ -338,7 +351,7 @@ export function AdminDashboard() {
       })
   }
 
-  const handleExportarPDF = async () => {
+  const handleExportarExcel = async () => {
     setGerando(true)
     try {
       const totalRelatoriosAlvo = registros.filter(temRelatorioCheckout).length
@@ -349,7 +362,9 @@ export function AdminDashboard() {
       let label = ''
       if (filtroPosto !== 'todos') label += `Posto: ${formatPosto(filtroPosto)}`
       if (filtroData) label += `${label ? ' · ' : ''}Data: ${new Date(filtroData + 'T12:00:00').toLocaleDateString('pt-BR')}`
-      await exportarRelatorioPDF(registros, label)
+      await exportarRelatorioExcel(registros, label)
+    } catch (err) {
+      alert(err.message || 'Erro ao exportar planilha.')
     } finally {
       setGerando(false)
     }
@@ -399,10 +414,10 @@ export function AdminDashboard() {
           <button
             className="btn btn-gold"
             style={{ flex: 1, fontSize: '13px', letterSpacing: '1px', opacity: gerando ? 0.6 : 1 }}
-            onClick={handleExportarPDF}
+            onClick={handleExportarExcel}
             disabled={gerando}
           >
-            {gerando ? 'Gerando PDF...' : `↓ Relatório PDF${totalRelatorios > 0 ? ` (${totalRelatorios})` : ''}`}
+            {gerando ? 'Gerando Excel...' : `📊 Exportar Excel${totalRelatorios > 0 ? ` (${totalRelatorios})` : ''}`}
           </button>
           <button className="btn btn-danger" style={{ flex: 1, fontSize: '13px', letterSpacing: '1px' }}
             onClick={() => setConfirmaApagar(true)}>
