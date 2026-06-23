@@ -12,11 +12,13 @@ const relatorioInicial = {
 
 const numero = valor => Number(valor) || 0
 
+// Etapas: 'form' → 'camera' → 'preview' → (envio)
 export function CheckOut() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+  const [etapa, setEtapa] = useState('form')
   const [posto, setPosto] = useState(searchParams.get('posto') || '')
   const [foto, setFoto] = useState(null)
   const [fotoArquivo, setFotoArquivo] = useState(null)
@@ -24,8 +26,8 @@ export function CheckOut() {
   const [enviando, setEnviando] = useState(false)
   const [sucesso, setSucesso] = useState(false)
   const [hora, setHora] = useState('')
-  const [cameraAtiva, setCameraAtiva] = useState(false)
   const [stream, setStream] = useState(null)
+  const [erroCamera, setErroCamera] = useState('')
   const nome = localStorage.getItem('nomeUsuario') || 'Salva-vidas'
 
   useEffect(() => {
@@ -34,81 +36,71 @@ export function CheckOut() {
       api.get('/check/registros/hoje')
         .then(data => {
           const checkinHoje = data.find(r => r.tipo === 'checkin')
-          if (checkinHoje && checkinHoje.postoId) {
-            setPosto(String(checkinHoje.postoId))
-          }
+          if (checkinHoje?.postoId) setPosto(String(checkinHoje.postoId))
         })
         .catch(err => console.error('Erro ao carregar check-in de hoje:', err))
     }
     const tick = setInterval(() => setHora(new Date().toLocaleTimeString('pt-BR')), 1000)
     setHora(new Date().toLocaleTimeString('pt-BR'))
     return () => clearInterval(tick)
-  }, [navigate, nome, searchParams])
+  }, [navigate, searchParams])
 
-  const iniciarCamera = async () => {
+  useEffect(() => {
+    if (etapa !== 'camera' && stream) {
+      stream.getTracks().forEach(t => t.stop())
+      setStream(null)
+    }
+  }, [etapa, stream])
+
+  const abrirCamera = async () => {
+    setErroCamera('')
+    setEtapa('camera')
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
       })
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
         await videoRef.current.play()
         setStream(mediaStream)
-        setCameraAtiva(true)
       }
     } catch (err) {
-      alert('Não foi possível acessar a câmera. Verifique as permissões.')
+      setErroCamera('Não foi possível acessar a câmera. Verifique as permissões do navegador.')
       console.error(err)
     }
   }
 
   const capturarFoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      const context = canvas.getContext('2d')
-      
-      canvas.width = video.videoWidth || 640
-      canvas.height = video.videoHeight || 480
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
-      
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], 'foto-checkout.jpg', { type: 'image/jpeg' })
-          setFotoArquivo(file)
-          setFoto(canvas.toDataURL('image/jpeg'))
-          pararCamera()
-        }
-      }, 'image/jpeg', 0.9)
-    }
+    if (!videoRef.current || !canvasRef.current) return
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob(blob => {
+      if (blob) {
+        setFotoArquivo(new File([blob], 'foto-checkout.jpg', { type: 'image/jpeg' }))
+        setFoto(canvas.toDataURL('image/jpeg'))
+        setEtapa('preview')
+      }
+    }, 'image/jpeg', 0.92)
   }
 
-  const pararCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop())
-      setStream(null)
-    }
-    setCameraAtiva(false)
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-  }
-
-  const reiniciarCamera = () => {
+  const retirarFoto = () => {
     setFoto(null)
     setFotoArquivo(null)
-    iniciarCamera()
+    abrirCamera()
+  }
+
+  const voltarForm = () => {
+    setFoto(null)
+    setFotoArquivo(null)
+    setEtapa('form')
   }
 
   const atualizarRelatorio = (turno, campo, valor) => {
     const normalizado = valor === '' ? '' : String(Math.max(0, Number(valor) || 0))
-    setRelatorio(atual => ({
-      ...atual,
-      [turno]: {
-        ...atual[turno],
-        [campo]: normalizado,
-      },
-    }))
+    setRelatorio(atual => ({ ...atual, [turno]: { ...atual[turno], [campo]: normalizado } }))
   }
 
   const atualizarLesoes = valor => {
@@ -132,9 +124,7 @@ export function CheckOut() {
       formData.append('vespertinoPrevencoes', numero(relatorio.vespertino.prevencoes))
       formData.append('vespertinoIncidentes', numero(relatorio.vespertino.incidentes))
       formData.append('lesoesAguaViva', numero(relatorio.lesoesAguaViva))
-
       await api.post('/check/out', formData)
-
       setSucesso(true)
       setTimeout(() => navigate('/dashboard'), 2500)
     } catch (err) {
@@ -144,6 +134,7 @@ export function CheckOut() {
     }
   }
 
+  // ── Sucesso ──
   if (sucesso) return (
     <div className="sucesso-wrap">
       <div className="sucesso-icon">✓</div>
@@ -153,6 +144,95 @@ export function CheckOut() {
     </div>
   )
 
+  // ── Câmera fullscreen ──
+  if (etapa === 'camera') return (
+    <div style={c.camWrap}>
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      <div style={c.camHeader}>
+        <button style={c.camBack} onClick={voltarForm}>← Voltar</button>
+        <span style={c.camTitulo}>FOTO DE SAÍDA</span>
+        <span style={c.camHora}>{hora}</span>
+      </div>
+
+      <div style={c.viewfinder}>
+        {erroCamera ? (
+          <div style={c.erroWrap}>
+            <span style={{ fontSize: '40px', marginBottom: '16px' }}>📷</span>
+            <p style={c.erroTxt}>{erroCamera}</p>
+            <button className="btn btn-navy" style={{ marginTop: '20px' }} onClick={abrirCamera}>
+              Tentar novamente
+            </button>
+          </div>
+        ) : (
+          <>
+            <video ref={videoRef} style={c.video} autoPlay playsInline muted />
+            <div style={c.ovalGuia} />
+            <p style={c.guiaTxt}>Posicione seu rosto no oval</p>
+          </>
+        )}
+      </div>
+
+      <div style={c.camFooter}>
+        <div style={c.camBtnWrap}>
+          <button style={c.btnCapturar} onClick={capturarFoto} disabled={!!erroCamera}>
+            <div style={c.btnCapturarInner} />
+          </button>
+        </div>
+        <p style={c.camDica}>Toque no botão para tirar a foto</p>
+      </div>
+    </div>
+  )
+
+  // ── Preview da foto ──
+  if (etapa === 'preview') return (
+    <div style={c.prevWrap}>
+      <div style={c.camHeader}>
+        <button style={c.camBack} onClick={retirarFoto}>← Tirar outra</button>
+        <span style={c.camTitulo}>CONFIRMAR FOTO</span>
+        <span style={c.camHora}>{hora}</span>
+      </div>
+
+      <div style={c.prevFotoWrap}>
+        <img src={foto} alt="Foto capturada" style={c.prevFoto} />
+        <div style={c.prevOverlay}>
+          <span className="badge badge-gold" style={{ fontSize: '12px', padding: '5px 12px' }}>
+            Foto capturada
+          </span>
+        </div>
+      </div>
+
+      <div style={c.prevInfo}>
+        <div style={c.prevInfoRow}>
+          <span style={c.prevInfoLabel}>Usuário</span>
+          <span style={c.prevInfoVal}>{nome}</span>
+        </div>
+        <div style={c.prevInfoRow}>
+          <span style={c.prevInfoLabel}>Posto</span>
+          <span style={c.prevInfoVal}>{formatPosto(posto)}</span>
+        </div>
+        <div style={c.prevInfoRow}>
+          <span style={c.prevInfoLabel}>Hora</span>
+          <span style={{ ...c.prevInfoVal, fontFamily: "'DM Mono', monospace", color: '#c9a84c' }}>{hora}</span>
+        </div>
+      </div>
+
+      <div style={c.prevAcoes}>
+        <button className="btn btn-ghost" style={{ flex: 1, fontSize: '13px' }} onClick={retirarFoto}>
+           Tirar outra
+        </button>
+        <button
+          className="btn btn-navy"
+          style={{ flex: 2, fontSize: '14px', letterSpacing: '1.5px' }}
+          onClick={voltarForm}
+        >
+          Usar esta foto ✓
+        </button>
+      </div>
+    </div>
+  )
+
+  // ── Formulário ──
   return (
     <div className="page">
       <div className="topbar">
@@ -173,6 +253,7 @@ export function CheckOut() {
           </select>
         </div>
 
+        {/* Relatório */}
         <div style={s.field}>
           <label style={s.label}>Relatório do check-out</label>
           <div style={s.turnosGrid}>
@@ -181,27 +262,15 @@ export function CheckOut() {
               <div style={s.inputsGrid}>
                 <label style={s.inputLabel}>
                   Prevenções
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    placeholder="0"
+                  <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
                     value={relatorio.matutino.prevencoes}
-                    onChange={e => atualizarRelatorio('matutino', 'prevencoes', e.target.value)}
-                  />
+                    onChange={e => atualizarRelatorio('matutino', 'prevencoes', e.target.value)} />
                 </label>
                 <label style={s.inputLabel}>
                   Incidentes
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    placeholder="0"
+                  <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
                     value={relatorio.matutino.incidentes}
-                    onChange={e => atualizarRelatorio('matutino', 'incidentes', e.target.value)}
-                  />
+                    onChange={e => atualizarRelatorio('matutino', 'incidentes', e.target.value)} />
                 </label>
               </div>
             </div>
@@ -211,27 +280,15 @@ export function CheckOut() {
               <div style={s.inputsGrid}>
                 <label style={s.inputLabel}>
                   Prevenções
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    placeholder="0"
+                  <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
                     value={relatorio.vespertino.prevencoes}
-                    onChange={e => atualizarRelatorio('vespertino', 'prevencoes', e.target.value)}
-                  />
+                    onChange={e => atualizarRelatorio('vespertino', 'prevencoes', e.target.value)} />
                 </label>
                 <label style={s.inputLabel}>
                   Incidentes
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    placeholder="0"
+                  <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
                     value={relatorio.vespertino.incidentes}
-                    onChange={e => atualizarRelatorio('vespertino', 'incidentes', e.target.value)}
-                  />
+                    onChange={e => atualizarRelatorio('vespertino', 'incidentes', e.target.value)} />
                 </label>
               </div>
             </div>
@@ -240,15 +297,9 @@ export function CheckOut() {
           <div style={s.fieldCompact}>
             <label style={s.inputLabel}>
               Lesões por água-viva
-              <input
-                className="input"
-                type="number"
-                min="0"
-                inputMode="numeric"
-                placeholder="0"
+              <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
                 value={relatorio.lesoesAguaViva}
-                onChange={e => atualizarLesoes(e.target.value)}
-              />
+                onChange={e => atualizarLesoes(e.target.value)} />
             </label>
           </div>
 
@@ -259,56 +310,34 @@ export function CheckOut() {
           </div>
         </div>
 
+        {/* Foto */}
         <div style={s.field}>
           <label style={s.label}>Foto obrigatória</label>
-          <div style={s.fotoContainer}>
-            {!foto && !cameraAtiva && (
-              <button 
-                className="btn btn-navy btn-full" 
-                onClick={iniciarCamera}
-                style={{ padding: '40px 20px', fontSize: '16px' }}
-              >
-                📸 Iniciar Câmera
-              </button>
-            )}
-            
-            {cameraAtiva && !foto && (
-              <div style={s.cameraPreview}>
-                <video 
-                  ref={videoRef} 
-                  style={s.video}
-                  autoPlay 
-                  playsInline
-                />
-                <canvas ref={canvasRef} style={{ display: 'none' }} />
-                <div style={s.cameraControls}>
-                  <button className="btn btn-ghost" onClick={pararCamera}>
-                    Cancelar
-                  </button>
-                  <button className="btn btn-navy" onClick={capturarFoto}>
-                    Capturar
-                  </button>
-                </div>
+
+          {!foto ? (
+            <button
+              className="btn btn-navy btn-full"
+              style={s.btnFoto}
+              onClick={abrirCamera}
+              disabled={!posto}
+            >
+              <span style={{ fontSize: '28px', display: 'block', marginBottom: '8px' }}>📸</span>
+              {posto ? 'Abrir câmera e tirar foto' : 'Selecione o posto primeiro'}
+            </button>
+          ) : (
+            <div style={s.fotoOkWrap}>
+              <img src={foto} alt="Foto" style={s.fotoThumb} />
+              <div style={s.fotoOkInfo}>
+                <span className="badge badge-gold">Foto OK ✓</span>
+                <button className="btn btn-ghost" style={{ fontSize: '12px', padding: '6px 12px', marginTop: '8px' }} onClick={retirarFoto}>
+                  Trocar foto
+                </button>
               </div>
-            )}
-            
-            {foto && (
-              <div style={s.fotoPreview}>
-                <img src={foto} alt="Foto capturada" style={s.fotoImg} />
-                <div style={s.cameraControls}>
-                  <button className="btn btn-ghost" onClick={reiniciarCamera}>
-                    Tirar outra
-                  </button>
-                  <button className="btn btn-navy" onClick={() => {}}>
-                    Foto OK ✓
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        <button className="btn btn-navy btn-full" style={s.btnConfirm} onClick={confirmar} disabled={!posto || !foto || enviando}>
+        <button className="btn btn-navy btn-full" style={s.btnConfirm} onClick={confirmar} disabled={!posto || !fotoArquivo || enviando}>
           {enviando ? 'Registrando...' : 'Registrar Check-out'}
         </button>
       </div>
@@ -331,35 +360,37 @@ const s = {
   totalLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '14px', fontWeight: 700, letterSpacing: '1px', color: '#f5f8fc' },
   totalNumero: { fontFamily: "'DM Mono', monospace", fontSize: '40px', lineHeight: 1, color: '#fff' },
   totalSub: { fontFamily: "'Barlow', sans-serif", fontSize: '12px', color: '#dce8ff' },
-  fotoContainer: { 
-    border: '1px solid rgba(201, 168, 76, 0.3)',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    background: 'rgba(0,0,0,0.3)'
-  },
-  cameraPreview: {
-    position: 'relative',
-    width: '100%'
-  },
-  video: {
-    width: '100%',
-    display: 'block',
-    background: '#000'
-  },
-  cameraControls: {
-    display: 'flex',
-    gap: '12px',
-    padding: '16px',
-    justifyContent: 'center',
-    background: 'rgba(0,0,0,0.5)'
-  },
-  fotoPreview: {
-    padding: '16px'
-  },
-  fotoImg: {
-    width: '100%',
-    borderRadius: '8px',
-    marginBottom: '12px'
-  },
+  btnFoto: { padding: '32px 20px', fontSize: '14px', letterSpacing: '1.5px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderRadius: '12px' },
+  fotoOkWrap: { display: 'flex', alignItems: 'center', gap: '16px', background: '#1a2e10', border: '1px solid #3a5010', borderRadius: '10px', padding: '14px' },
+  fotoThumb: { width: '72px', height: '72px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, border: '2px solid #c9a84c' },
+  fotoOkInfo: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
   btnConfirm: { fontSize: '15px', padding: '15px', letterSpacing: '2px', marginTop: '4px' },
+}
+
+const c = {
+  camWrap: { minHeight: '100vh', background: '#000', display: 'flex', flexDirection: 'column' },
+  camHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'rgba(0,0,0,0.85)', borderBottom: '1px solid #1a3358', zIndex: 10, flexShrink: 0 },
+  camBack: { background: 'none', border: '1px solid #2a4a72', borderRadius: '6px', color: '#6a8aaa', fontFamily: "'Barlow Condensed', sans-serif", fontSize: '13px', fontWeight: 600, letterSpacing: '1px', padding: '6px 12px', cursor: 'pointer' },
+  camTitulo: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '14px', fontWeight: 700, letterSpacing: '3px', color: '#c9a84c', textTransform: 'uppercase' },
+  camHora: { fontFamily: "'DM Mono', monospace", fontSize: '13px', color: '#6a8aaa', background: '#0d2340', padding: '4px 10px', borderRadius: '4px', border: '1px solid #1a3358' },
+  viewfinder: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#060d18' },
+  video: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  ovalGuia: { position: 'absolute', width: '200px', height: '260px', border: '3px solid rgba(201,168,76,0.7)', borderRadius: '50%', boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)', pointerEvents: 'none' },
+  guiaTxt: { position: 'absolute', bottom: '16px', left: 0, right: 0, textAlign: 'center', fontFamily: "'Barlow', sans-serif", fontSize: '13px', color: 'rgba(255,255,255,0.7)', letterSpacing: '0.5px' },
+  erroWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 32px', textAlign: 'center' },
+  erroTxt: { fontFamily: "'Barlow', sans-serif", fontSize: '15px', color: '#e05252', lineHeight: 1.6 },
+  camFooter: { background: 'rgba(0,0,0,0.9)', padding: '24px 20px 32px', flexShrink: 0, borderTop: '1px solid #1a3358' },
+  camBtnWrap: { display: 'flex', justifyContent: 'center', marginBottom: '12px' },
+  btnCapturar: { width: '72px', height: '72px', borderRadius: '50%', border: '4px solid #c9a84c', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'transform .1s' },
+  btnCapturarInner: { width: '52px', height: '52px', borderRadius: '50%', background: '#c9a84c' },
+  camDica: { textAlign: 'center', fontFamily: "'Barlow', sans-serif", fontSize: '12px', color: '#6a8aaa', letterSpacing: '0.5px' },
+  prevWrap: { minHeight: '100vh', background: '#0a1828', display: 'flex', flexDirection: 'column' },
+  prevFotoWrap: { position: 'relative', flex: 1, background: '#000', overflow: 'hidden', minHeight: '300px' },
+  prevFoto: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  prevOverlay: { position: 'absolute', top: '16px', left: 0, right: 0, display: 'flex', justifyContent: 'center' },
+  prevInfo: { background: '#112a4d', borderTop: '2px solid #c9a84c', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '10px' },
+  prevInfoRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  prevInfoLabel: { fontFamily: "'Barlow Condensed', sans-serif", fontSize: '10px', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#6a8aaa' },
+  prevInfoVal: { fontFamily: "'Barlow', sans-serif", fontSize: '14px', color: '#e8eef5', fontWeight: 500 },
+  prevAcoes: { display: 'flex', gap: '10px', padding: '16px 20px 28px', background: '#0d2340', borderTop: '1px solid #1a3358', flexShrink: 0 },
 }
